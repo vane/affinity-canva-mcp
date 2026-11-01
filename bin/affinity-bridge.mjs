@@ -13,6 +13,8 @@ const RECONNECT_MIN_MS = 250;
 const RECONNECT_MAX_MS = 5000;
 const ENDPOINT_TIMEOUT_MS =
   Number.parseInt(process.env.AFFINITY_BRIDGE_ENDPOINT_TIMEOUT_MS ?? "10000", 10) || 10000;
+const INIT_TIMEOUT_MS =
+  Number.parseInt(process.env.AFFINITY_BRIDGE_INIT_TIMEOUT_MS ?? "15000", 10) || 15000;
 const EXIT_GRACE_MS = 1500;
 const MAX_RETRIES = 1;
 const MAX_EXPIRED_IDS = 200;
@@ -29,8 +31,9 @@ const RETRYABLE_TOOLS = new Set([
   "read_library_script",
 ]);
 
-// Affinity reports a closed render channel that is transient in practice.
-const RETRYABLE_ERROR = /authorization channel closed|channel closed/i;
+// Affinity reports a closed render channel that is transient in practice, and
+// rejects calls made before a (re)connection's session is initialized.
+const RETRYABLE_ERROR = /authorization channel closed|channel closed|session not initialized/i;
 
 // Client protocol versions keyed by initialize request id, so the client's own
 // version can be restored on the matching response.
@@ -40,6 +43,18 @@ const pendingClientProtocolVersions = new Map();
 const pendingRequests = new Map();
 // Ids that already timed out; a late response for them is dropped.
 const expiredIds = new Set();
+
+// Affinity scopes MCP session state to the SSE connection: a reconnect yields a
+// new session id with no `initialize`, so the client's initialize params are
+// cached and replayed on every new connection.
+let clientInitializeParams = null;
+let awaitingClientInitializeId = null;
+let sessionReady = false;
+let reinitPromise = null;
+let reinitSeq = 0;
+
+// Bridge-originated requests whose responses must not reach the client.
+const internalPending = new Map();
 
 let messageEndpoint = null;
 let endpointDeferred = null;
@@ -100,6 +115,10 @@ function writeErrorResponse(id, message, code = -32001) {
 
 function resetEndpoint() {
   messageEndpoint = null;
+  sessionReady = false;
+  awaitingClientInitializeId = null;
+  reinitPromise = null;
+  clearInternalPending("SSE connection dropped");
 
   let resolve;
   let reject;
@@ -128,6 +147,7 @@ function shutdown(exitCode) {
   for (const id of [...pendingRequests.keys()]) {
     clearPending(id);
   }
+  clearInternalPending("bridge shutting down");
 
   endpointDeferred?.reject(new Error("bridge shutting down"));
   sseController?.abort();
@@ -231,12 +251,112 @@ function retryRequest(entry) {
   log(`Retrying ${entry.message.method} (id ${entry.message.id}), attempt ${attempts}`);
 
   registerPending(entry.message, attempts);
-  postToAffinity(entry.message).catch((error) => {
-    clearPending(entry.message.id);
-    const text = messageOf(error);
-    log(`Retry failed: ${text}`);
-    writeErrorResponse(entry.message.id, text);
+  waitForSession()
+    .then(() => postToAffinity(entry.message))
+    .catch((error) => {
+      clearPending(entry.message.id);
+      const text = messageOf(error);
+      log(`Retry failed: ${text}`);
+      writeErrorResponse(entry.message.id, text);
+    });
+}
+
+// ---- session establishment -------------------------------------------------
+
+function clearInternalPending(reason) {
+  for (const [id, entry] of internalPending) {
+    clearTimeout(entry.timer);
+    entry.reject(new Error(reason));
+    internalPending.delete(id);
+  }
+}
+
+// Posts a bridge-originated request and resolves with its JSON-RPC response.
+// The response is consumed here and never forwarded to the client.
+function postAndAwait(message, timeoutMs) {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      internalPending.delete(message.id);
+      reject(new Error(`no response to ${message.method} within ${timeoutMs} ms`));
+    }, timeoutMs);
+    timer.unref();
+
+    internalPending.set(message.id, { resolve, reject, timer });
+
+    postToAffinity(message).catch((error) => {
+      const entry = internalPending.get(message.id);
+      if (entry) {
+        clearTimeout(entry.timer);
+        internalPending.delete(message.id);
+      }
+      reject(error);
+    });
   });
+}
+
+// Rebuilds the MCP session on a freshly discovered endpoint by replaying the
+// client's initialize request, then sends notifications/initialized.
+function reestablishSession() {
+  if (!clientInitializeParams) {
+    return Promise.resolve();
+  }
+  if (reinitPromise) {
+    return reinitPromise;
+  }
+
+  const id = `affinity-bridge-init-${++reinitSeq}`;
+  sessionReady = false;
+  log("Re-initializing MCP session on the new SSE connection");
+
+  const promise = (async () => {
+    const response = await postAndAwait(
+      { jsonrpc: "2.0", id, method: "initialize", params: clientInitializeParams },
+      INIT_TIMEOUT_MS,
+    );
+    if (response.error) {
+      throw new Error(`initialize failed: ${messageOf(response.error)}`);
+    }
+
+    await postToAffinity({
+      jsonrpc: "2.0",
+      method: "notifications/initialized",
+    });
+    sessionReady = true;
+    log("MCP session re-established");
+  })();
+
+  reinitPromise = promise;
+  promise
+    .catch((error) => log(`Re-initialize failed: ${messageOf(error)}`))
+    .finally(() => {
+      if (reinitPromise === promise) {
+        reinitPromise = null;
+      }
+    });
+
+  return promise;
+}
+
+// Blocks until the current connection's session is usable.
+async function waitForSession() {
+  try {
+    await endpointDeferred.promise;
+  } catch {
+    return; // connection dropped; the caller's POST will report it
+  }
+
+  if (sessionReady || !clientInitializeParams) {
+    return;
+  }
+  if (awaitingClientInitializeId !== null) {
+    return; // the client's own initialize is still outstanding
+  }
+  if (reinitPromise) {
+    await reinitPromise.catch(() => {});
+    return;
+  }
+
+  await reestablishSession().catch(() => {});
 }
 
 // ---- SSE -------------------------------------------------------------------
@@ -289,6 +409,7 @@ function handleSseEvent(eventName, data) {
     clearTimeout(discoveryTimer);
     log("Affinity SSE connected; message endpoint discovered");
     endpointDeferred.resolve(messageEndpoint);
+    reestablishSession();
     return;
   }
 
@@ -305,6 +426,15 @@ function handleSseEvent(eventName, data) {
 function handleRemoteMessage(message) {
   const hasId = Object.hasOwn(message, "id");
   const id = hasId ? message.id : null;
+
+  if (hasId && internalPending.has(id)) {
+    const entry = internalPending.get(id);
+    clearTimeout(entry.timer);
+    internalPending.delete(id);
+    debug(`<- id=${id} (bridge-internal)`);
+    entry.resolve(message);
+    return;
+  }
 
   if (hasId && expiredIds.has(id)) {
     expiredIds.delete(id);
@@ -328,6 +458,12 @@ function handleRemoteMessage(message) {
           return; // suppress this error; the retry's response will be forwarded
         }
       }
+    }
+
+    // Track the client's own initialize so a reconnect does not race it.
+    if (id === awaitingClientInitializeId) {
+      awaitingClientInitializeId = null;
+      sessionReady = !message.error;
     }
   }
 
@@ -523,7 +659,23 @@ async function handleClientLine(line) {
       : `-> response id=${request.id ?? "-"}`,
   );
 
+  if (request.method === "initialize") {
+    // Remember what the client asked for so it can be replayed after a reconnect.
+    clientInitializeParams = request.params ?? null;
+    awaitingClientInitializeId = Object.hasOwn(request, "id") ? request.id : null;
+  }
+
   registerPending(request);
+
+  if (
+    request.method !== "initialize" &&
+    clientInitializeParams &&
+    typeof request.method === "string" &&
+    !request.method.startsWith("notifications/")
+  ) {
+    // Requests sent before a reconnect's session is rebuilt would be rejected.
+    await waitForSession();
+  }
 
   try {
     await postToAffinity(request);

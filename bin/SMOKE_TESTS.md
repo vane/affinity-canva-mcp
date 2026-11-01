@@ -36,7 +36,7 @@ document from test 4.
 | 11 | History | `execute_script` | Undo/redo restores node count |
 | 12 | Concurrency | 6 × `execute_script` | Each returns its own marker |
 | 13 | Cleanup | `execute_script` | 0 nodes |
-| 14 | Bridge tests (optional) | `node --test tests/*.test.mjs` | 18/18 pass |
+| 14 | Bridge tests (optional) | `node --test tests/*.test.mjs` | 23/23 pass |
 
 ---
 
@@ -264,14 +264,16 @@ Automated, against a fake SSE server. Run from the **repo root**:
 node --test tests/*.test.mjs
 ```
 
-**Expect:** 18/18 pass. Note `node --test tests/` does **not** work on Node 24 — use the glob form.
+**Expect:** 23/23 pass. Note `node --test tests/` does **not** work on Node 24 — use the glob form.
 
 Two live-only checks that the suite cannot cover:
 
 - **Startup reconnect** — start the bridge while Affinity is closed, then open Affinity. The first
   tool call should succeed.
 - **Mid-session reconnect** — restart Affinity while the bridge is running. The next tool call should
-  succeed once Affinity is back (look for `Reconnecting in …` on stderr).
+  succeed once Affinity is back (look for `Reconnecting in …` then
+  `Re-initializing MCP session on the new SSE connection` and `MCP session re-established` on stderr).
+  Before the session replay existed this call failed with `Session not initialized`.
 
 ---
 

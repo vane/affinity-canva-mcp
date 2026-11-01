@@ -5,8 +5,8 @@ subprocess, talks JSON-RPC to it over stdio exactly as an MCP client would, and 
 **fake Affinity server** that speaks the same legacy SSE transport.
 
 This is how the fault paths that cannot be reproduced against a live Affinity get exercised:
-reconnect, endpoint-discovery timeout, stale-endpoint retry, request timeout, transient-error
-retry, POST-body responses and clean shutdown.
+reconnect, session re-initialization, endpoint-discovery timeout, stale-endpoint retry,
+request timeout, transient-error retry, POST-body responses and clean shutdown.
 
 ## Run
 
@@ -33,6 +33,11 @@ Node 24 — it treats the directory as a module — so use the glob form above.
 | tools/call forwarding | Arguments reach the server, result comes back |
 | heartbeat ignored | Unknown SSE events produce no stdout output |
 | reconnect | Stream close → new connection → next request succeeds |
+| session replay | After a reconnect the client's `initialize` is replayed (with a bridge-owned id) and `notifications/initialized` follows; the replay's response never reaches stdout |
+| request gating | A request sent while the replay is in flight is posted only after it completes |
+| no replay without initialize | A bridge that never saw `initialize` sends none on reconnect |
+| failed replay | A rejected replay does not stall the client; the request is still forwarded |
+| session error retry | `Session not initialized` on a read-only tool is retried once and suppressed |
 | stale endpoint (404) | One reconnect + exactly one retry |
 | transient error retry | `authorization channel closed` on a read-only tool is retried once and suppressed |
 | mutating tool not retried | `execute_script` is never re-sent |
@@ -53,10 +58,11 @@ Node 24 — it treats the directory as a module — so use the glob form above.
 Use `setup(t, { fakeOptions, bridgeEnv })` from `bridge.test.mjs` — it creates the fake server and
 bridge and registers teardown. Override behaviour through `fakeOptions`:
 
-- `respond(message, state)` — return a JSON-RPC response, or `null` to send nothing.
+- `respond(message, state)` — return a JSON-RPC response, a promise for one (to delay a reply),
+  or `null` to send nothing.
 - `postStatus(message, state, connId)` — return an HTTP status to force 404/410/500 paths.
 - `jsonBody: true` — return the response as `application/json` instead of over SSE.
 - `sendEndpoint: false` — never emit the `endpoint` event (for discovery-timeout tests).
 
 And through `bridgeEnv`: `AFFINITY_BRIDGE_TIMEOUT_MS`, `AFFINITY_BRIDGE_ENDPOINT_TIMEOUT_MS`,
-`AFFINITY_BRIDGE_DEBUG`.
+`AFFINITY_BRIDGE_INIT_TIMEOUT_MS`, `AFFINITY_BRIDGE_DEBUG`.

@@ -75,7 +75,7 @@ export async function createFakeAffinity(options = {}) {
       req.on("data", (chunk) => {
         body += chunk;
       });
-      req.on("end", () => {
+      req.on("end", async () => {
         let message = null;
         try {
           message = JSON.parse(body);
@@ -91,7 +91,8 @@ export async function createFakeAffinity(options = {}) {
           return;
         }
 
-        const response = message ? respond(message, state, connId) : null;
+        // `respond` may return a promise, which lets a test delay a reply.
+        const response = message ? await respond(message, state, connId) : null;
 
         if (jsonBody) {
           res.writeHead(200, { "Content-Type": "application/json" });

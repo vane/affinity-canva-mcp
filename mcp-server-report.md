@@ -254,18 +254,24 @@ Kept separate because these are improvements to the stdio↔SSE bridge, not the 
 - **Implemented:** reconnect with backoff, endpoint-discovery timeout, stale-endpoint (404/410)
   retry, non-fatal request errors, flush-then-exit shutdown, JSON-RPC POST-body forwarding, queued
   stdout writes with backpressure, `EPIPE` handling, per-request timeouts, a single retry for
-  read-only tools on transient channel errors, and opt-in debug logging
+  read-only tools on transient channel errors, session replay on reconnect, and opt-in debug logging
   (`AFFINITY_BRIDGE_DEBUG=1`).
+- **Session replay (finding 22):** Affinity scopes MCP session state to the SSE connection, so a
+  reconnect leaves the new session uninitialized and every call fails with
+  `Session not initialized` — the symptom seen after restarting Affinity. The bridge now caches the
+  client's `initialize` params and replays `initialize` + `notifications/initialized` on each new
+  endpoint, holding other client requests until the replay completes and never forwarding the
+  replay's response to the client.
 - **Design constraint:** retries are limited to read-only tools (`render_*`, `*_documentation*`,
   `search_sdk_hints`, `*_library_script*`) so a re-send can never duplicate a mutation such as
   `execute_script`.
 - **Verified:** the reconnect loop against an unreachable port
   (`250 → 500 → 1000 → 2000 → 4000 → 5000` ms), and startup reconnect in practice — the bridge was
   started while Affinity was closed and the first tool call succeeded once it came up.
-- **Covered by tests:** the paths a live server cannot easily produce — mid-session reconnect, the
-  endpoint-discovery timeout, the 404/410 stale-endpoint retry, request timeouts, the transient-error
-  retry, POST-body responses, concurrency, large payloads and clean exit — are exercised by the
-  fake-server suite in `tests/` (`node --test tests/*.test.mjs`, 18 cases).
+- **Covered by tests:** the paths a live server cannot easily produce — mid-session reconnect, session
+  replay and request gating, the endpoint-discovery timeout, the 404/410 stale-endpoint retry, request
+  timeouts, the transient-error retry, POST-body responses, concurrency, large payloads and clean
+  exit — are exercised by the fake-server suite in `tests/` (`node --test tests/*.test.mjs`, 23 cases).
 
 ## 11. Skill improvements (`SKILL.md`)
 
@@ -360,7 +366,8 @@ No upstream dependency — all of the following is implemented and tested here.
 | Flush-then-exit shutdown (1.5 s grace) | `bin/affinity-bridge.mjs` | Done |
 | Unknown SSE events ignored, `heartbeat` documented (finding 21) | `bin/affinity-bridge.mjs` + `SKILL.md` § Transport | Done |
 | Protocol-version translation (`initialize` request and response) | `bin/affinity-bridge.mjs` | Done |
-| Fake-SSE integration tests, 18 cases, all passing | `tests/` | Done |
+| Session replay on reconnect (finding 22): cached `initialize` replayed per connection, requests held until ready | `bin/affinity-bridge.mjs` | Done |
+| Fake-SSE integration tests, 23 cases, all passing | `tests/` | Done |
 | Live smoke-test checklist, 14 steps | `bin/SMOKE_TESTS.md` | Done |
 | Skill: document identity, history semantics, bulk perf, output formats, render cap, error catalogue, transport facts, hint hygiene | `.agents/skills/affinity-mcp/SKILL.md` | Done |
 

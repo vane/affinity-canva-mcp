@@ -100,6 +100,164 @@ test("reconnects after the SSE stream closes", async (t) => {
   assert.equal(response.result.ok, true);
 });
 
+test("replays initialize on the new connection after a reconnect", async (t) => {
+  const { fake, bridge } = await setup(t);
+
+  bridge.send(initializeRequest(1, "2025-06-18"));
+  await bridge.waitForResponse(1);
+
+  fake.dropStream(); // simulate Affinity restarting
+
+  await bridge.waitFor(
+    () => fake.state.requests.filter((r) => r.method === "initialize").length === 2,
+    { timeoutMs: 5000, what: "the bridge to replay initialize" },
+  );
+
+  const initializes = fake.state.requests.filter((r) => r.method === "initialize");
+  const [first, replay] = initializes;
+
+  // The replay carries the client's own initialize params, translated again.
+  assert.equal(replay.params.protocolVersion, "2025-11-25");
+  assert.deepEqual(replay.params.clientInfo, first.params.clientInfo);
+  assert.notEqual(replay.id, first.id, "the replay must not reuse the client's id");
+
+  await bridge.waitFor(
+    () => fake.state.requests.some((r) => r.method === "notifications/initialized"),
+    { timeoutMs: 5000, what: "notifications/initialized after the replay" },
+  );
+
+  // The replay's response belongs to the bridge, not to the client.
+  await sleep(150);
+  assert.equal(
+    bridge.messages.length,
+    1,
+    "only the client's own initialize response may reach stdout",
+  );
+
+  bridge.send(toolCallRequest(2, "render_spread"));
+  const response = await bridge.waitForResponse(2);
+  assert.equal(response.result.ok, true);
+});
+
+test("holds client requests until the replayed session is ready", async (t) => {
+  const { fake, bridge } = await setup(t, {
+    fakeOptions: {
+      respond: async (message) => {
+        if (message.method === "initialize") await sleep(250);
+        return {
+          jsonrpc: "2.0",
+          id: message.id,
+          result: { ok: true, method: message.method },
+        };
+      },
+    },
+  });
+
+  bridge.send(initializeRequest(1));
+  await bridge.waitForResponse(1);
+
+  fake.dropStream();
+  await bridge.waitFor(
+    () => fake.state.connectionCount >= 2,
+    { timeoutMs: 5000, what: "the bridge to reconnect" },
+  );
+
+  // Sent while the replayed initialize is still in flight.
+  bridge.send(toolCallRequest(2, "render_spread"));
+  const response = await bridge.waitForResponse(2);
+  assert.equal(response.result.ok, true);
+
+  const methods = fake.state.requests.map((r) => r.method);
+  const initIndex = methods.lastIndexOf("initialize");
+  const callIndex = methods.lastIndexOf("tools/call");
+  assert.ok(
+    initIndex !== -1 && initIndex < callIndex,
+    `initialize must be replayed before the tool call, got: ${methods.join(", ")}`,
+  );
+});
+
+test("does not replay initialize when the client never sent one", async (t) => {
+  const { fake, bridge } = await setup(t);
+
+  bridge.send(toolCallRequest(1, "ping"));
+  await bridge.waitForResponse(1);
+
+  fake.dropStream();
+  await bridge.waitFor(
+    () => fake.state.connectionCount >= 2,
+    { timeoutMs: 5000, what: "the bridge to reconnect" },
+  );
+
+  await sleep(200);
+  assert.equal(
+    fake.state.requests.filter((r) => r.method === "initialize").length,
+    0,
+    "nothing to replay without a client initialize",
+  );
+  assert.equal(
+    fake.state.requests.filter((r) => r.method === "notifications/initialized").length,
+    0,
+  );
+});
+
+test("keeps serving requests when the session replay fails", async (t) => {
+  const { fake, bridge } = await setup(t, {
+    fakeOptions: {
+      respond: (message) => {
+        const isReplay =
+          message.method === "initialize" &&
+          String(message.id).startsWith("affinity-bridge-init");
+        if (isReplay) {
+          return { jsonrpc: "2.0", id: message.id, error: { code: -32603, message: "boom" } };
+        }
+        return { jsonrpc: "2.0", id: message.id, result: { ok: true, method: message.method } };
+      },
+    },
+  });
+
+  bridge.send(initializeRequest(1));
+  await bridge.waitForResponse(1);
+
+  fake.dropStream();
+  await bridge.waitFor(
+    () => fake.state.connectionCount >= 2,
+    { timeoutMs: 5000, what: "the bridge to reconnect" },
+  );
+
+  // A failed replay must not stall the client; the request still gets forwarded.
+  bridge.send(toolCallRequest(2, "ping"));
+  const response = await bridge.waitForResponse(2);
+  assert.equal(response.result.ok, true);
+});
+
+test("retries a read-only tool once on 'Session not initialized'", async (t) => {
+  let calls = 0;
+
+  const { fake, bridge } = await setup(t, {
+    fakeOptions: {
+      respond: (message) => {
+        calls += 1;
+        if (calls === 1) {
+          return {
+            jsonrpc: "2.0",
+            id: message.id,
+            error: { code: -32603, message: "Session not initialized" },
+          };
+        }
+        return { jsonrpc: "2.0", id: message.id, result: { ok: true } };
+      },
+    },
+  });
+
+  bridge.send(toolCallRequest(1, "list_sdk_documentation"));
+  const response = await bridge.waitForResponse(1);
+
+  assert.equal(response.error, undefined, "the session error must be suppressed");
+  assert.equal(response.result.ok, true);
+  assert.equal(calls, 2, "one retry");
+  assert.equal(fake.state.requests.length, 2);
+});
+
 test("retries once when the message endpoint has rotated (404)", async (t) => {
   let firstPost = true;
 

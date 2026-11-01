@@ -44,6 +44,7 @@ flowchart LR
 | stdout | `writeJsonRpc`, `writeLine`, `writeErrorResponse` |
 | lifecycle | `resetEndpoint`, `clearPending`, `shutdown`, `fail` |
 | protocol version translation | `toAffinityProtocolVersion`, `toClientProtocolVersion` |
+| session establishment | `clearInternalPending`, `postAndAwait`, `reestablishSession`, `waitForSession` |
 | request tracking | `registerPending`, `expirePending`, `requestLabel`, `isRetryableFailure`, `retryRequest` |
 | SSE | `createSseParser`, `handleSseEvent`, `handleRemoteMessage`, `consumeSse`, `dropConnection`, `connectToAffinity` |
 | POST | `postToAffinity` |
@@ -57,6 +58,11 @@ flowchart LR
 | `pendingClientProtocolVersions` | `initialize` request id → the client's protocol version, so the response can be restored |
 | `pendingRequests` | id → `{ message, attempts, timer }` for requests awaiting a response |
 | `expiredIds` | Ids that already timed out; a late response for one is dropped |
+| `clientInitializeParams` | The client's `initialize` params (already version-translated), replayed on every new connection |
+| `awaitingClientInitializeId` | Id of the client's own in-flight `initialize`, so a reconnect does not race it |
+| `sessionReady` | Whether the current connection's MCP session has been initialized |
+| `reinitPromise` | In-flight session replay, so concurrent callers share one attempt |
+| `internalPending` | id → `{ resolve, reject, timer }` for bridge-originated requests whose responses must not reach the client |
 | `messageEndpoint` | Discovered POST URL for the current connection |
 | `endpointDeferred` | Promise for that URL; recreated on every connection attempt |
 | `discoveryTimer` | Fires if no `endpoint` event arrives in time |
@@ -74,6 +80,24 @@ sent, keyed by request id. When that response comes back it restores the client'
 `result.protocolVersion`, so the client sees the version it asked for. Both directions copy the
 message rather than mutating it.
 
+### Session re-establishment after a reconnect
+
+Affinity scopes MCP session state to the **SSE connection**: the `endpoint` event names a
+connection-specific URL (`/message?session_id=…`), and a new connection starts with no
+`initialize`. Without a replay, every call after a reconnect is answered
+`Session not initialized` — which is exactly what an Affinity restart used to do.
+
+The bridge therefore caches the client's `initialize` params (after version translation) and, on
+every newly discovered endpoint, replays:
+
+1. `initialize` with a bridge-owned id (`affinity-bridge-init-<n>`), awaited via `postAndAwait`;
+2. `notifications/initialized`.
+
+The replay's response is consumed in `internalPending` and **never forwarded to stdout** — the
+client already has its own initialize response. Client requests other than `initialize` and
+`notifications/*` are held by `waitForSession()` until the replay finishes, so none can be posted
+into a not-yet-initialized session. A failed replay is logged and does not stall the client.
+
 ### Request tracking and timeouts
 
 `registerPending` records any message that has both an `id` and a `method`, and arms a timer
@@ -84,9 +108,11 @@ being delivered twice. Notifications (no id) are never tracked.
 ### Retry policy — read-only tools only
 
 When a response carries an error matching `authorization channel closed` (a transient render
-failure), the bridge re-sends the request **once**, but only if the tool is in `RETRYABLE_TOOLS`
-(`render_*`, doc/hint/library reads). The tool name comes from `params.name` via `requestLabel`,
-not from the JSON-RPC `method` — every tool call shares `method: "tools/call"`.
+failure) or `Session not initialized` (a session that has not been re-established yet), the bridge
+re-sends the request **once**, but only if the tool is in `RETRYABLE_TOOLS`
+(`render_*`, doc/hint/library reads). The retry waits for `waitForSession()` first. The tool name
+comes from `params.name` via `requestLabel`, not from the JSON-RPC `method` — every tool call
+shares `method: "tools/call"`.
 
 **`execute_script` and other mutating tools are never re-sent.** A duplicated script would repeat its
 side effects. Do not add mutating tools to that set.
@@ -140,6 +166,7 @@ and fatal errors (exit 1).
 | `AFFINITY_MCP_PROTOCOL_VERSION` | `2025-11-25` | Version sent to Affinity |
 | `AFFINITY_BRIDGE_TIMEOUT_MS` | `300000` | Per-request timeout |
 | `AFFINITY_BRIDGE_ENDPOINT_TIMEOUT_MS` | `10000` | Endpoint-discovery timeout |
+| `AFFINITY_BRIDGE_INIT_TIMEOUT_MS` | `15000` | How long to wait for the replayed `initialize` response |
 | `AFFINITY_BRIDGE_DEBUG` | unset | `1` logs every forwarded method/id and response |
 
 ## Reading the logs
@@ -150,6 +177,9 @@ All on stderr. Useful when diagnosing a client that "hangs":
 | --- | --- |
 | `Translating initialize protocol X -> Y` | Handshake rewritten |
 | `Affinity SSE connected; message endpoint discovered` | Transport is up; requests can flow |
+| `Re-initializing MCP session on the new SSE connection` | Session replay started after a reconnect |
+| `MCP session re-established` | Replay accepted; held client requests are released |
+| `Re-initialize failed: …` | Replay rejected or timed out; requests are forwarded anyway |
 | `No endpoint event after N ms; dropping connection` | Server accepted the stream but never named an endpoint |
 | `Dropping SSE connection: …` | Endpoint rotated (404/410) |
 | `SSE connection lost: …` / `Reconnecting in N ms` | Stream closed or unreachable; backoff running |
@@ -164,10 +194,12 @@ All on stderr. Useful when diagnosing a client that "hangs":
 2. **Never add a mutating tool to `RETRYABLE_TOOLS`.**
 3. **Resolve the tool name** with `requestLabel`, not `request.method`.
 4. **Abort the stream** with the `AbortController`; `reader.cancel()` does not wake the read loop.
-5. **Keep `resetEndpoint` non-rejecting** — it must not break in-flight POSTs.
+5. **Keep `resetEndpoint` non-rejecting** — it must not break in-flight POSTs. It *does* reset
+   `sessionReady` and reject `internalPending`, because those belong to the connection being dropped.
 6. **Preserve ordering**: writes go through `writeChain`; stdin lines are handled through a promise
    queue in `start`.
 7. **Clear timers** you create (all are `unref()`'d so they cannot keep the process alive).
+8. **Never forward an `internalPending` response** to stdout; those belong to the bridge.
 
 Two bugs found by the test suite are worth remembering, because both looked correct: retry keyed on
 `method` instead of `params.name` (dead code), and discovery timeout using `reader.cancel()` (silent
@@ -181,7 +213,7 @@ Integration tests spawn this file as a real subprocess against a fake SSE server
 node --test tests/*.test.mjs
 ```
 
-18 cases cover the handshake, forwarding, heartbeat handling, reconnect, endpoint rotation, request
+23 cases cover the handshake, forwarding, heartbeat handling, reconnect, session replay, request
 timeout, transient-error retry (and that mutating tools are *not* retried), POST-body responses,
 concurrency, large payloads, endpoint-discovery timeout, clean exit and non-fatal POST failures. See
 [`../tests/README.md`](../tests/README.md) for the matrix and how to add a case.
