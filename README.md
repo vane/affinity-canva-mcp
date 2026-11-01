@@ -1,4 +1,4 @@
-# ai-affinity-mcp
+# affinity-canva-mcp
 
 A workspace for driving **Affinity by Canva** from an AI agent through the Affinity MCP server.
 Everything in Affinity is done by writing JavaScript against the SDK and running it with
@@ -75,7 +75,9 @@ is absent, fall back to `read_sdk_documentation_topic` and `search_api_docs`. Do
 3. Run a script with `execute_script`; output appears only via `console.log(...)`.
 4. Render to verify: `render_spread` with `document_session_uuid: doc.sessionUuid, spread_index: 0`,
    or `render_selection` for a single node.
-5. Save good scripts with `save_script_to_library` and record new SDK findings with `add_sdk_hint`.
+5. Save good scripts with `save_script_to_library` and record findings with `add_sdk_hint` — both need
+   **additional permission**; if unavailable, hand the script over inline and state findings in your
+   reply.
 
 To install the skill globally, copy `.agents/skills/affinity-mcp/` to `~/.agents/skills/affinity-mcp/`.
 
@@ -93,7 +95,7 @@ Point your client at the wrapper (use an absolute path):
 {
   "mcpServers": {
     "affinity": {
-      "command": "/absolute/path/to/ai-affinity-mcp/bin/run"
+      "command": "/absolute/path/to/affinity-canva-mcp/bin/run"
     }
   }
 }
@@ -105,7 +107,7 @@ To override the endpoint, pass it through `env`:
 {
   "mcpServers": {
     "affinity": {
-      "command": "/absolute/path/to/ai-affinity-mcp/bin/run",
+      "command": "/absolute/path/to/affinity-canva-mcp/bin/run",
       "env": { "AFFINITY_MCP_SSE_URL": "http://[::1]:6767/sse" }
     }
   }

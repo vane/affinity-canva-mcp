@@ -722,7 +722,7 @@ Application.confirm(...); Application.prompt(...); Application.chooseFile();
 | `inspect.js` | Node-style `inspect`/`format`/`patchConsole` |
 | `collection.js` | Lazy `Collection`/`SpanCollection` (`toArray`, `map`, `filter`, `first`, `length`, …) |
 | `handleobject.js` | `HandleObject` base, `livePoint`/`liveStruct`/`liveStructArray` |
-| `fs.js`, `network.js` | Filesystem and HTTP — blocked in this setup |
+| `fs.js`, `network.js` | Filesystem and HTTP — gated by permission toggles; see *Permissions* |
 | `*interface.js` | Per-node facets: `artboardinterface`, `baseboxinterface`, `blendmodeinterface`, `brushfillinterface`, `curvesinterface`, `descriptioninterface`, `editabilityinterface`, `exportableinterface`, `imageresourceinterface`, `layereffectsinterface`, `linestyleinterface`, `marginsinterface`, `pageboxinterface`, `physicalrootinterface`, `pictureframeinterface`, `rasterinterface`, `shapeinterface`, `taginterface`, `textframeinterface`, `transforminterface`, `transparencyinterface`, `visibilityinterface` |
 | `examples/*.js` | Runnable patterns: `makeGrid`, `stepAndRepeat`, `textOnCurvesAndShapes`, `tableFromJson`, `addGuides`, `alignToPage`, … |
 | `tests/*.js` | Sometimes stale — use for ideas only |

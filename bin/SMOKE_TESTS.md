@@ -13,8 +13,9 @@ document from test 4.
 - Affinity is running with the MCP server enabled
   (`EnableMCPServer => true` in `~/Library/Preferences/com.canva.affinity.plist`).
 - The MCP client is pointed at the server — directly or through `bin/run`.
-- Script/AI permissions are enabled in Affinity; `fs.js` / `network.js` are expected to be blocked in
-  this setup, so verification uses the render tools, never file export.
+- Script execution is enabled in Affinity. Filesystem, network, export, script-library and hint
+  permissions are **separate toggles** — this checklist needs none of them, so it runs with all of them
+  off. Verification uses the render tools throughout.
 - **After any restart, test 1 must be run first** — every other doc tool fails until the preamble has
   been read in that session.
 

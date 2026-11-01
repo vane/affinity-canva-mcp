@@ -15,7 +15,8 @@ directly-executable script, run it, and confirm the result visually with the ren
 - Geometry and curve building: `CurveBuilder`, bezier arcs, ellipses, capsules.
 - Colour, fills, strokes, line styles, units/DPI, text formatting, raster pixels, dialogs and export.
 - Drawing vector line-art illustrations from overlapping parts.
-- Permission limits in this setup and how to verify work without exporting files.
+- Permission **toggles** (filesystem, network, export, script library, hints) and how each one changes
+  the workflow.
 
 ## Contents
 
@@ -32,11 +33,12 @@ can be fetched as a zip (`https://sdk.affinity.studio/33001/JSLib.zip`) and read
 ## Requirements
 
 - Affinity by Canva (verified against **3.3.1** on macOS) with the **Affinity MCP server** running.
-- The agent must have access to the Affinity MCP tools: `execute_script`, `render_spread`,
-  `render_selection`, `read_sdk_documentation_topic`, `search_sdk_hints`, `add_sdk_hint`,
-  `list_sdk_documentation`, `save_script_to_library`, and the rest of the tool map.
-- Script/AI permissions enabled in Affinity. If a call returns `NOT_ALLOWED`, the user has turned
-  off AI, filesystem or networking access in Affinity's settings.
+- The agent must have access to the Affinity MCP tools. Several need **additional permission** in
+  Affinity's settings: `add_sdk_hint` (task hints), `list_library_scripts` / `read_library_script`
+  (library read), `save_script_to_library` (library write), `report_sdk_issue` (SDK issue reporting).
+  `execute_script`, `render_spread`, `render_selection` and the documentation lookups need none.
+- Script execution enabled in Affinity. If a call returns `NOT_ALLOWED`, the user has turned off AI,
+  filesystem or networking access.
 
 ## Using the skill
 
@@ -45,7 +47,8 @@ can be fetched as a zip (`https://sdk.affinity.studio/33001/JSLib.zip`) and read
 3. Run scripts with `execute_script`; output only appears via `console.log(...)`.
 4. Verify with `render_spread` (`document_session_uuid: doc.sessionUuid`, `spread_index: 0`) or
    `render_selection` for an isolated close-up of a single node.
-5. Save good scripts with `save_script_to_library`, and record new SDK findings with `add_sdk_hint`.
+5. Save good scripts with `save_script_to_library` and record findings with `add_sdk_hint` — both need
+   additional permission; when unavailable, hand the script over inline and state findings in your reply.
 
 ### Installing
 
@@ -56,11 +59,14 @@ Copy this folder to either location:
 
 ## Environment notes (this setup)
 
-Recorded against Affinity 3.3.1 on macOS:
+Recorded against Affinity 3.3.1 on macOS. **Every permission is a toggle and changes between sessions**
+— `SKILL.md` → *Permissions* has the runtime probe and what each one means.
 
-- The SDK bridge, script execution and render tools work.
-- `fs.js` and `network.js` throw `PERMISSION_DENIED`; `allowCodeGenerationFromStrings` is `false`.
-  So: no file I/O, no outbound HTTP, no `eval`/`new Function`. Use the render tools to verify.
+- The SDK bridge, script execution and render tools work with every permission disabled.
+- Observed on 2026-11-01: filesystem, network, export, script-library read/write and hint recording are
+  all **disabled** (`PERMISSION_DENIED`, or *"… has been disabled in Affinity settings."*);
+  `allowCodeGenerationFromStrings` is `false`, so no `eval`/`new Function`.
+- When filesystem access **is** enabled it is scoped to `~/Desktop` only.
 - `render_selection` renders an empty checkerboard when the selected nodes span nearly the whole
   spread — select a single node for a close-up.
 - A render can fail with `authorization channel closed`; that is a transient bridge error, retry once.
@@ -70,6 +76,7 @@ Recorded against Affinity 3.3.1 on macOS:
 `SKILL.md` is the source of truth. When you discover non-obvious SDK behaviour by experiment:
 
 1. Add the finding to `SKILL.md` (Gotchas / Recipes / Node definitions as appropriate).
-2. Record a short, factual hint with `add_sdk_hint` so other sessions benefit.
+2. Record a short, factual hint with `add_sdk_hint` so other sessions benefit — this needs additional
+   permission; if it is off, state the finding in your reply instead.
 3. Keep any scripts you save directly executable — no `module.exports.main`, matching the Script
    rules in `SKILL.md`.

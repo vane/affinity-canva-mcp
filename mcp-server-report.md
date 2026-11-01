@@ -87,7 +87,7 @@ requiring `execute_script`:
 | --- | --- |
 | Discover open documents | `Document.all` in a script (an Array, not a Collection) |
 | Close a document | **Impossible** — no SDK `close()` and no tool |
-| Save / export to a path | SDK `doc.export(...)`, blocked here by `fs.js` permissions |
+| Save / export to a path | SDK `doc.export(...)` — needs the filesystem permission (Desktop-only) |
 | Undo / redo | `doc.undo()` / `doc.redo()` in a script |
 | Inspect history | `doc.history` in a script |
 | Get `sessionUuid` for `render_*` | Run a script first, then copy the value |
