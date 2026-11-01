@@ -877,12 +877,27 @@ match on the text, not on a code.
 - `doc.addNode(def)` returns `undefined` — take the new node from `doc.selection` instead.
 - `ShapeNodeDefinition.create` / `PolyCurveNodeDefinition.create` need a `LineStyleDescriptor`; a raw
   `LineStyle` throws `expected parameter lineStyleDescriptor to be LineStyleDescriptorHandle`.
+- The same two factories reject a raw `Colour` fill with `TypeError: expected FillDescriptorHandle` —
+  wrap it with `FillDescriptor.createSolid(colour)`.
 - `PolyCurveNodeDefinition.create` requires **all five** args (`FillDescriptor.createNone()` for the
   transparency fill); it dereferences `.handle` on each.
+- `noneFill` as the **line** fill gives a filled shape with no outline; `noneFill` as the brush fill gives
+  an unfilled outline. The two are independent.
 - Nodes stack in insertion order — later `addNode` calls sit on top. Create back-to-front.
 - `PolyCurveNode` has no `curves` setter; to re-shape it, delete and re-add the node.
 - `LineStyle` weight is in **pixels at `doc.dpi`** (`setLineWeight` sets it directly; use
   `setLineWeightPts` for points).
+
+### Line-art construction
+
+- **Stroke weight eats small gaps.** Two shapes closer than the line weight have their outlines merge into
+  one blob: a 12 px gap between Kirby's feet was swallowed by an 8 px stroke and read as a single shape,
+  while ~28 px separated them cleanly. The centred stroke eats `weight/2` on each side, so required
+  clearance is roughly the line weight itself.
+- **Welding leaves sharp corners** where the source shapes intersect — fine for cartoon silhouettes, but
+  avoid welding shapes that need a smooth blend. Where a smooth join matters, draw the whole outline as
+  one hand-built bezier path: Peppa Pig's head is a single closed path ending in an arc that forms the
+  snout's blunt tip, rather than an ellipse welded to a snout capsule (which creases where they cross).
 
 ### Rendering
 
