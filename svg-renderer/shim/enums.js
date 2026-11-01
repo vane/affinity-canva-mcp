@@ -31,6 +31,16 @@ const ShapeType = enumOf([
     'Crescent', 'Segment', 'SquareStar', 'Tear', 'Heart', 'Cat', 'Cat2', 'Cat3', 'Cat4',
     'QRCode', 'Spiral', 'Style',
 ]);
+const ShapeArrowEndStyle = enumOf([
+    'None', 'Arrow', 'TailTriangular', 'TailSquare', 'Circle', 'HalfCircleInner',
+    'HalfCircleOuter', 'Diamond', 'Box', 'Barb', 'Chevron',
+]);
+const ShapeSpiralStyle = enumOf([
+    'SemiCircle', 'CounterSemiCircle', 'Fibonacci', 'SegmentedLogarithmic',
+    'SegmentedLinear', 'Plotted',
+]);
+// Corner order matches Affinity's ShapeCornerIndex.
+const ShapeCornerIndex = enumOf(['TopLeft', 'TopRight', 'BottomRight', 'BottomLeft']);
 
 module.exports = {
     enumOf,
@@ -42,4 +52,7 @@ module.exports = {
     FillType,
     ShapeCornerType,
     ShapeType,
+    ShapeArrowEndStyle,
+    ShapeSpiralStyle,
+    ShapeCornerIndex,
 };

@@ -17,7 +17,8 @@ svg-renderer/
 ├── shim/
 │   ├── index.js       # module map + runner (renderScriptToSvg / renderFileToSvg)
 │   ├── enums.js       # enum helper + UnitType, LineCap, LineJoin, LineType,
-│   │                  # StrokeAlignment, FillType, ShapeCornerType, ShapeType
+│   │                  # StrokeAlignment, FillType, ShapeCornerType, ShapeType,
+│   │                  # ShapeArrowEndStyle, ShapeSpiralStyle, ShapeCornerIndex
 │   ├── colours.js     # RGB8
 │   ├── fills.js       # FillDescriptor
 │   ├── linestyle.js   # LineStyle, LineStyleDescriptor
@@ -28,7 +29,11 @@ svg-renderer/
 │   ├── svg.js         # document -> SVG string
 │   └── warnings.js    # approximation warnings, reset per run
 └── test/
-    └── shapes.js      # shape coverage fixture (4x4 grid)
+    ├── shapes-reference.json   # reference shape curves captured from Affinity
+    ├── shim-core.test.mjs      # enums, colours, fills, line styles, geometry
+    ├── shim-shapes.test.mjs    # shape geometry + reference comparison
+    ├── shim-document.test.mjs  # document, node definitions, SVG writer
+    └── shim-runner.test.mjs    # script runner, module map, warnings
 ```
 
 `shim/index.js` is the entry point: it builds the `require('/x.js')` module map from the
@@ -67,7 +72,7 @@ The shim provides these modules, which is everything the drawings require:
 | --- | --- |
 | `/document.js` | `Document`, `NewDocumentOptions` |
 | `/nodes.js` | `PolyCurveNodeDefinition`, `ShapeNodeDefinition` |
-| `/shapes.js` | `Shape`, `ShapeRectangle`, `ShapeEllipse`, `ShapeTriangle`, `ShapeDiamond`, `ShapeTrapezoid`, `ShapePolygon`, `ShapeStar`, `ShapeSquareStar`, `ShapeDoubleStar`, `ShapeCloud`, `ShapeCog`, `ShapeArrow`, `ShapePie`, `ShapeCrescent`, `ShapeSegment`, `ShapeTear`, `ShapeHeart`, `ShapeSpiral`, `ShapeCalloutRectangle`, `ShapeCalloutEllipse`, `ShapeQRCode`, `ShapeCat`–`ShapeCat4`, `ShapeType`, `ShapeCornerType` |
+| `/shapes.js` | `Shape`, `ShapeRectangle`, `ShapeEllipse`, `ShapeTriangle`, `ShapeDiamond`, `ShapeTrapezoid`, `ShapePolygon`, `ShapeStar`, `ShapeSquareStar`, `ShapeDoubleStar`, `ShapeCloud`, `ShapeCog`, `ShapeArrow`, `ShapePie`, `ShapeCrescent`, `ShapeSegment`, `ShapeTear`, `ShapeHeart`, `ShapeSpiral`, `ShapeCalloutRectangle`, `ShapeCalloutEllipse`, `ShapeQRCode`, `ShapeCat`–`ShapeCat4`, `ShapeType`, `ShapeCornerType`, `ShapeCornerIndex`, `ShapeArrowEndStyle`, `ShapeSpiralStyle` |
 | `/geometry.js` | `Rectangle`, `Curve`, `CurveBuilder`, `PolyCurve` |
 | `/colours.js` | `RGB8` |
 | `/fills.js` | `FillDescriptor`, `FillType` |
@@ -94,21 +99,47 @@ The shim also reproduces two real SDK behaviours that the drawings depend on:
 Verified against geometry exported from Affinity itself. For the cat, every path is byte-identical to
 Affinity's own SVG except the background rectangle, where the two differ only in winding start point
 (Affinity begins at `(520,0)` counter-clockwise, the shim at `(0,0)` clockwise) — the same rectangle
-either way.
+either way. Shapes are compared separately; see *Shape support* and *Tests*.
+
+## Tests
+
+Unit tests for the shim live in `test/*.test.mjs` and use Node's built-in test runner. Run them from
+`svg-renderer/`:
+
+```bash
+node --test test/*.test.mjs
+```
+
+| File | Covers |
+| --- | --- |
+| `shim-core.test.mjs` | enums, colours, fills, line styles, warnings, geometry builders |
+| `shim-shapes.test.mjs` | every shape's structure and parameter behaviour, plus a comparison with reference curves captured from Affinity |
+| `shim-document.test.mjs` | `ShimDocument`, both node definitions, and the SVG writer |
+| `shim-runner.test.mjs` | the script runner: module map, per-run isolation, warning plumbing |
+
+The shape comparison uses `test/shapes-reference.json` (Affinity's own curves for the same bounds) and
+allows at most one pixel of difference per coordinate, so it doubles as the regression test for the
+fidelity claims above.
+
+Requires Node **18+**. Use the glob form: `node --test test/` treats the directory as a module on
+Node 24.
 
 ## Shape support
 
 `ShapeNodeDefinition` runs the real geometry generator: every shape has a `getCurves(bounds)` that
 returns a `PolyCurve`, exactly as the SDK's `ShapeApi.getCurves` does. The output was checked against
-geometry exported from Affinity for the same bounds.
-
-**Exact** — matches Affinity's own output for default parameters:
+geometry captured from Affinity for the same bounds; the unit tests keep that comparison and allow at
+most one pixel of difference.
 
 | Shape | Parameters honoured |
 | --- | --- |
 | `ShapeRectangle` | per-corner radius + `cornerType` |
+| `ShapeEllipse` | bounds |
 | `ShapePolygon` | `sides` |
 | `ShapeStar` | `points`, `innerRadius` |
+| `ShapeSquareStar` | `sides`, `cutout` |
+| `ShapeDoubleStar` | `points`, `innerRadius`, `pointRadius` |
+| `ShapeCloud` | `bubbles`, `innerRadius` |
 | `ShapeTriangle` | `position` |
 | `ShapeDiamond` | `position` |
 | `ShapeTrapezoid` | `left`, `right` |
@@ -116,24 +147,58 @@ geometry exported from Affinity for the same bounds.
 | `ShapeTear` | `tailPosition` |
 | `ShapePie` | `startAngle`, `endAngle`, `innerRadius` |
 | `ShapeSegment` | `lowerLine` |
-| `ShapeCloud` | `bubbles`, `innerRadius` |
+| `ShapeArrow` | `thickness`, both ends' `length`/`innerOffset`, styles `Arrow` and `None` |
+| `ShapeCog` | `teeth`, `innerRadius`, `holeRadius`, `toothSize`, `notchSize`, `curvature` |
+| `ShapeCrescent` | `leftArc`, `rightArc` (clamped so `leftArc <= rightArc`) |
+| `ShapeSpiral` | `turns`, `partTurn`, `segmentAngle`, `innerRadius`, `flip` (style `SegmentedLinear`) |
+| `ShapeCalloutRectangle` | tail `startPosition`/`endPosition`/`width`/`height`, per-corner radii, `useSingleRadius` |
+| `ShapeCalloutEllipse` | tail `angle`/`endPosition`/`height` (angle clamped to the tangent points) |
 
-**Sub-pixel differences** — same shape, slightly different bezier fitting: `ShapeEllipse` (Affinity's
-circle control points differ by ~0.02 px from the standard `k = 0.5523`), and arcs longer than 90° are
-subdivided differently (`ShapeSegment`'s 240° arc becomes 3 segments here, 4 in Affinity).
+Several parameter behaviours that are easy to get wrong:
 
-**Approximated** — renders a plausible shape and prints a warning via the CLI:
+- **`ShapeSquareStar`** — a point's flat tip sits at radius `1 - cutout`, and its two corners sit
+  `cutout * cos(PI/sides)` further out along the point's edges. `cutout = 0` collapses to a plain n-gon;
+  `cutout = 1` leaves only the paired corners.
+- **`ShapeDoubleStar`** — four vertices per point: `[1, innerRadius, pointRadius, innerRadius]`.
+- **`ShapeCog`** — per tooth: a tip arc at radius 1 spanning `toothSize` of the tooth angle, a flank, a
+  notch arc at `innerRadius` spanning `notchSize`, and a flank back. `curvature = 0` gives straight
+  flanks; positive/negative values bend them.
+- **`ShapeCrescent`** — each arc interpolates its control points between the centre line (arc 0) and a
+  quarter circle (arc 1), so the tips are cusps. The setters clamp the pair.
+- **`ShapeSpiral`** — a chain of tangent arcs; the radius decreases linearly and the last arc is
+  truncated so the spiral covers exactly `turns` revolutions. `turns` is truncated to an integer.
+- **`ShapeCalloutRectangle`** — the box is `h * (1 - tail.height)` tall, corner radii are fractions of
+  `min(width, boxHeight)`, and the tail base is centred on `startPosition` and slid inwards when a
+  corner radius would clip it.
+- **`ShapeArrow`** — a head is `length * height` long (Affinity measures the length against the height,
+  not the width), the shaft is `thickness * height` tall, and `innerOffset` slides the shaft end by
+  `innerOffset * height`, clipped by the head's edge and the opposite head's base.
 
-| Shape | Approximation |
+### Fitting differences
+
+The shapes are built from the same arcs Affinity uses, so the geometry is within a fraction of a pixel.
+The new shapes use Affinity's precision quarter-circle constant (`0.551915`) for exact quarter turns,
+matching Affinity's ellipse code. The older shapes (`ShapeEllipse`, `ShapeRectangle` corners, `ShapePie`,
+`ShapeSegment`, `ShapeTear`) still use the standard `k = 4/3 * tan(PI/8) = 0.552285`, which differs by
+about `0.0004 * radius` (~0.02 px on a 110 px shape). Arcs longer than 90° may also be split into a
+different number of segments (`ShapeSegment`'s 240° arc becomes 3 segments here, 4 in Affinity).
+
+### Remaining approximations
+
+These are the only places the shim does not reproduce Affinity. Each prints a `WARN:` line via the CLI:
+
+| Item | Behaviour |
 | --- | --- |
-| `ShapeSquareStar` | plain star using `cutout` as the inner radius |
-| `ShapeDoubleStar` | 2n-point star, `pointRadius` ignored |
-| `ShapeCog` | 2n-point star plus a circular hole (hole matches; teeth do not) |
-| `ShapeArrow` | horizontal double-headed arrow |
-| `ShapeCrescent` | outer half-ellipse plus an inner bulge; `leftArc` ignored |
-| `ShapeSpiral` | evenly decaying polyline spiral; `decay`/style ignored |
-| `ShapeCalloutRectangle` / `ShapeCalloutEllipse` | shape plus a triangular tail |
-| `ShapeQRCode`, `ShapeCat`–`ShapeCat4` | bounding rectangle / ellipse |
+| `ShapeQRCode` | renders its bounding rectangle; generating the module pattern needs a QR encoder |
+| `ShapeCat`–`ShapeCat4` | render as an ellipse; the silhouettes are baked into Affinity with no formula |
+| `ShapeArrow` end styles other than `Arrow`/`None` | drawn as `Arrow` (`TailTriangular`, `Circle`, `Barb`, … are not implemented) |
+| `ShapeSpiral` styles other than `SegmentedLinear` | drawn as `SegmentedLinear` |
+| `ShapeSegment` with `upperLine < 1` | the top chord is ignored |
+| `ShapeTear` with `bend != 0` | the bend is ignored |
+
+Two more parameter ranges are close but not exact: `ShapeCloud` with a non-canonical `innerRadius`
+(apexes and valleys still match, the arc fitting can differ by a few px), and `ShapeCog` with extreme
+`innerRadius`/wide flanks and `curvature != 0` (up to ~0.6 px).
 
 ### Two rectangle gotchas found by testing against Affinity
 
@@ -156,5 +221,6 @@ subdivided differently (`ShapeSegment`'s 240° arc becomes 3 segments here, 4 in
   the transform baked into the coordinates.
 - **No boolean operations.** `doc.boolOpUnion` isn't implemented, so a script that welds parts will
   throw rather than produce a wrong silhouette.
-- **Shape approximations are listed above.** Anything not in the "exact" table may differ from
-  Affinity, and the CLI prints a `WARN:` line when that happens.
+- **The remaining shape approximations are listed above.** Anything not in the "Remaining approximations"
+  table reproduces Affinity to well under a pixel, and the CLI prints a `WARN:` line when a shape falls
+  back to an approximation.

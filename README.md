@@ -133,6 +133,13 @@ node --test test/*.test.mjs
 See [`test/README.md`](test/README.md) for the case matrix and how to add tests, and
 [`bin/SMOKE_TESTS.md`](bin/SMOKE_TESTS.md) for the live-server checklist to run after any change.
 
+The SVG renderer has its own unit tests for the SDK shim (`svg-renderer/test/*.test.mjs`), including a
+comparison against reference shape curves captured from Affinity:
+
+```bash
+cd svg-renderer && node --test test/*.test.mjs
+```
+
 ## Server analysis
 
 [`mcp-server-report.md`](mcp-server-report.md) analyses the MCP server itself — from static analysis of
