@@ -203,19 +203,19 @@ All on stderr. Useful when diagnosing a client that "hangs":
 
 Two bugs found by the test suite are worth remembering, because both looked correct: retry keyed on
 `method` instead of `params.name` (dead code), and discovery timeout using `reader.cancel()` (silent
-no-op). Both are covered by `tests/` — see below.
+no-op). Both are covered by `test/` — see below.
 
 ## Tests
 
 Integration tests spawn this file as a real subprocess against a fake SSE server:
 
 ```bash
-node --test tests/*.test.mjs
+node --test test/*.test.mjs
 ```
 
 23 cases cover the handshake, forwarding, heartbeat handling, reconnect, session replay, request
 timeout, transient-error retry (and that mutating tools are *not* retried), POST-body responses,
 concurrency, large payloads, endpoint-discovery timeout, clean exit and non-fatal POST failures. See
-[`../tests/README.md`](../tests/README.md) for the matrix and how to add a case.
+[`../test/README.md`](../test/README.md) for the matrix and how to add a case.
 
 For a live-server check, use [`SMOKE_TESTS.md`](SMOKE_TESTS.md).

@@ -271,7 +271,7 @@ Kept separate because these are improvements to the stdio↔SSE bridge, not the 
 - **Covered by tests:** the paths a live server cannot easily produce — mid-session reconnect, session
   replay and request gating, the endpoint-discovery timeout, the 404/410 stale-endpoint retry, request
   timeouts, the transient-error retry, POST-body responses, concurrency, large payloads and clean
-  exit — are exercised by the fake-server suite in `tests/` (`node --test tests/*.test.mjs`, 23 cases).
+  exit — are exercised by the fake-server suite in `test/` (`node --test test/*.test.mjs`, 23 cases).
 
 ## 11. Skill improvements (`SKILL.md`)
 
@@ -367,7 +367,7 @@ No upstream dependency — all of the following is implemented and tested here.
 | Unknown SSE events ignored, `heartbeat` documented (finding 21) | `bin/affinity-bridge.mjs` + `SKILL.md` § Transport | Done |
 | Protocol-version translation (`initialize` request and response) | `bin/affinity-bridge.mjs` | Done |
 | Session replay on reconnect (finding 22): cached `initialize` replayed per connection, requests held until ready | `bin/affinity-bridge.mjs` | Done |
-| Fake-SSE integration tests, 23 cases, all passing | `tests/` | Done |
+| Fake-SSE integration tests, 23 cases, all passing | `test/` | Done |
 | Live smoke-test checklist, 14 steps | `bin/SMOKE_TESTS.md` | Done |
 | Skill: document identity, history semantics, bulk perf, output formats, render cap, error catalogue, transport facts, hint hygiene | `.agents/skills/affinity-mcp/SKILL.md` | Done |
 
@@ -393,7 +393,7 @@ No upstream dependency — all of the following is implemented and tested here.
    file to the *Work landed* table.
 3. **An open question is answered** — replace `Verify` in §9 with the finding; promote it to the summary
    table if it needs a fix.
-4. **After any change** — re-run `node --test tests/*.test.mjs` and the checklist in `bin/SMOKE_TESTS.md`.
+4. **After any change** — re-run `node --test test/*.test.mjs` and the checklist in `bin/SMOKE_TESTS.md`.
 
 **Last verified:** 2026-11-01, Affinity 3.3.1 (build 4940), macOS.
 

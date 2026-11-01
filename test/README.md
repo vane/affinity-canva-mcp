@@ -11,10 +11,10 @@ request timeout, transient-error retry, POST-body responses and clean shutdown.
 ## Run
 
 ```bash
-node --test tests/*.test.mjs
+node --test test/*.test.mjs
 ```
 
-Requires Node **18+** (`node:test`, global `fetch`). Note `node --test tests/` does **not** work on
+Requires Node **18+** (`node:test`, global `fetch`). Note `node --test test/` does **not** work on
 Node 24 — it treats the directory as a module — so use the glob form above.
 
 ## Files

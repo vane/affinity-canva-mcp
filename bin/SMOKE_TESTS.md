@@ -2,7 +2,7 @@
 
 A short, ordered checklist to confirm the **live** MCP server still works after a change to Affinity,
 the MCP server, or the stdio↔SSE bridge. Run these by calling the MCP tools directly (agent or human);
-they complement the automated bridge tests in [`../tests/`](../tests/README.md), which use a fake server
+they complement the automated bridge tests in [`../test/`](../test/README.md), which use a fake server
 and cannot exercise real Affinity.
 
 **Run order matters:** test 1 establishes the session. Tests 4–6 need a document; tests 7–9 need the
@@ -36,7 +36,7 @@ document from test 4.
 | 11 | History | `execute_script` | Undo/redo restores node count |
 | 12 | Concurrency | 6 × `execute_script` | Each returns its own marker |
 | 13 | Cleanup | `execute_script` | 0 nodes |
-| 14 | Bridge tests (optional) | `node --test tests/*.test.mjs` | 23/23 pass |
+| 14 | Bridge tests (optional) | `node --test test/*.test.mjs` | 23/23 pass |
 
 ---
 
@@ -261,10 +261,10 @@ console.log('uuid:', doc.sessionUuid);
 Automated, against a fake SSE server. Run from the **repo root**:
 
 ```bash
-node --test tests/*.test.mjs
+node --test test/*.test.mjs
 ```
 
-**Expect:** 23/23 pass. Note `node --test tests/` does **not** work on Node 24 — use the glob form.
+**Expect:** 23/23 pass. Note `node --test test/` does **not** work on Node 24 — use the glob form.
 
 Two live-only checks that the suite cannot cover:
 

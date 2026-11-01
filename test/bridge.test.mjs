@@ -1,5 +1,5 @@
 // Integration tests for bin/affinity-bridge.mjs against a fake Affinity SSE
-// server. Run with:  node --test tests/
+// server. Run with:  node --test test/*.test.mjs
 //
 // These cover the paths that cannot be exercised against a live Affinity:
 // reconnect, endpoint discovery timeout, stale-endpoint retry, request timeout,
