@@ -31,19 +31,52 @@ After solving something by experimentation, call `add_sdk_hint` immediately with
 
 ## Tool map
 
-| Tool | Purpose |
+| Tool | Purpose | Permission required |
+| --- | --- | --- |
+| `execute_script` | Run JavaScript in Affinity. Returns **nothing** — use `console.log`. | Script execution |
+| `render_spread` | Render a spread. Args: `document_session_uuid` (`doc.sessionUuid`), `spread_index` (0-based). | none |
+| `render_selection` | Render the current selection in isolation. Arg: `document_session_uuid`. | none |
+| `list_sdk_documentation` | List all SDK doc topics. | none |
+| `read_sdk_documentation_topic` | Read one topic. Preamble must be read first. | none |
+| `search_api_docs` | Full-text search of the bundled API reference. | none |
+| `search_manual_docs` | Full-text search of the Affinity user manual. | none |
+| `search_sdk_hints` | Search hints recorded by other sessions. | none |
+| `add_sdk_hint` | Record a hard-won finding for future sessions. | **Additional permission** — task hints |
+| `list_library_scripts` / `read_library_script` | Read scripts stored in the library. | **Additional permission** — library read |
+| `save_script_to_library` | Store a working script for reuse. | **Additional permission** — library write |
+| `report_sdk_issue` | Report a genuine SDK bug. | **Additional permission** — SDK issue reporting |
+
+Tools marked **Additional permission** need that toggle enabled in Affinity's settings. When it is off the
+call fails with a specific message (e.g. *"Adding hints to the preamble has been disabled in Affinity
+settings."*) — tell the user which permission is missing instead of retrying. Tools marked `none` work
+with every toggle disabled. See *Permissions* for the state observed in the current session.
+
+**Filesystem and network are not tools.** They gate `fs.js` and `network.js` *inside* `execute_script`,
+so a script using them fails with `PERMISSION_DENIED` even though the tool itself is available — they
+also need **additional permission**. See *Permissions*.
+
+**Output formats to expect** (verified; the server does not return structured JSON for these):
+
+- `list_sdk_documentation` returns **one comma-separated string**, not a JSON array — split on `", "`.
+- `search_sdk_hints` returns an **empty string** when nothing matches. That means "no hints", not a
+  failed call.
+- `render_spread` / `render_selection` return a base64 JPEG capped at **1024 px** on the longest side,
+  with no format or size parameter — plan detail checks around that limit.
+- Errors arrive as plain sentences (e.g. `No document with that Uuid exists.`), sometimes ending in a
+  colon. See the Error catalogue.
+
+### Which tool for what
+
+| Need | Use |
 | --- | --- |
-| `execute_script` | Run JavaScript in Affinity. Returns **nothing** — use `console.log`. |
-| `render_spread` | Render a spread. Args: `document_session_uuid` (`doc.sessionUuid`), `spread_index` (0-based). |
-| `render_selection` | Render the current selection in isolation. Arg: `document_session_uuid`. |
-| `list_sdk_documentation` | List all SDK doc topics. |
-| `read_sdk_documentation_topic` | Read one topic. Preamble must be read first. |
-| `search_api_docs` | Full-text search of the bundled API reference. |
-| `search_manual_docs` | Full-text search of the Affinity user manual. |
-| `search_sdk_hints` | Search hints recorded by other sessions. |
-| `add_sdk_hint` | Record a hard-won finding for future sessions. |
-| `list_library_scripts` / `read_library_script` / `save_script_to_library` | Reuse and store working scripts. |
-| `report_sdk_issue` | Report a genuine SDK bug. |
+| Change anything in a document | `execute_script` |
+| Check the whole spread | `render_spread` |
+| Inspect a single node closely | `render_selection` with only that node selected |
+| Look up SDK behaviour | `read_sdk_documentation_topic`, `search_api_docs` |
+| Check what earlier sessions found | `search_sdk_hints` |
+| Reuse a proven script | `list_library_scripts` → `read_library_script` → `save_script_to_library` — requires the library permissions; if unavailable, hand the script over inline |
+| Record a finding for later sessions | `add_sdk_hint` — requires the task-hints permission; if unavailable, state it in your reply |
+| Report a real SDK defect | `report_sdk_issue` |
 
 `execute_blender_code*`, `get_blendfile_summary_*`, `render_viewport_to_path`,
 `render_thumbnail_to_path` and `jump_to_view3d_*` belong to a **separate Blender MCP server**.
@@ -82,6 +115,33 @@ Affinity version.
 **It is a mirror, not a replacement for the preamble step.** Still call
 `read_sdk_documentation_topic("preamble")` first — skipping it makes every other doc tool fail. If
 network access is unavailable, fall back to `read_sdk_documentation_topic` and `search_api_docs`.
+
+**Protocol version check.** The MCP server implements exactly one protocol version (`2025-11-25` in
+Affinity 3.3.1). It lives in the MCP library, not in `Contents/Resources`:
+
+```bash
+grep -a -o -E "20[0-9]{2}-[0-9]{2}-[0-9]{2}" \
+  /Applications/Affinity.app/Contents/Frameworks/liblibmcp.dylib | sort -u
+```
+
+## Transport and connectivity
+
+The server speaks **legacy SSE**, not Streamable HTTP:
+
+- `GET /sse` (default `http://[::1]:6767/sse`) opens the stream.
+- The first event is `event: endpoint` — the URL to POST JSON-RPC messages to.
+- Responses arrive as `event: message`. `event: heartbeat` also occurs and must be **ignored**; unknown
+  event types are not errors.
+- Protocol version `2025-11-25`; anything else is rejected with `Unsupported protocol version`.
+- Methods implemented: `initialize`, `notifications/initialized`, `ping`, `tools/list`, `tools/call`,
+  `resources/list`, `resources/read`, `resources/subscribe`, `resources/templates/list`. There is
+  **no** `prompts/*`, `sampling/*`, `completion/*` or `logging/*` — don't plan around them.
+- The server may be fronted by a **stdio↔SSE bridge**; tool behaviour is identical either way. If
+  calls cannot connect, check the bridge/endpoint before suspecting your script.
+
+Server toggles live in `~/Library/Preferences/com.canva.affinity.plist` (`EnableMCPServer`). Four
+features can be disabled individually and report it clearly: hint recording, library reads, library
+saves, and issue reporting.
 
 ## Script rules
 
@@ -124,16 +184,89 @@ SpatialAnchor.keys   = None, TopLeft, CentreLeft, BottomLeft, TopCentre, Centre,
 
 Note `FontWeight` uses `Normal`, not `Regular`.
 
-## Environment limits (this setup)
+## Permissions (this setup)
 
-Recorded by a prior session (Affinity 3.3.1, macOS): the SDK bridge, script execution and the
-render tools work, but `fs.js` and `network.js` throw `PERMISSION_DENIED`, and
-`Application.settings.allowCodeGenerationFromStrings` is `false`. Therefore:
+Every capability below is a **user-controlled toggle** in Affinity's settings, and they change between
+sessions. **Check the live state before relying on any of them:**
 
-- Do **not** rely on file I/O or outbound HTTP. Use `render_spread` / `render_selection` for
-  visual verification instead of exporting to disk.
-- Do **not** use `eval` or `new Function`.
-- If the user asks for a file export, attempt it once and report the permission error if it fails.
+```js
+const { Application } = require('/application.js');
+const fs = require('/fs.js');
+console.log('desktop:', Application.userDesktopPath);
+console.log('code-from-strings:', Application.settings.allowCodeGenerationFromStrings);
+try { console.log('fs ok:', fs.exists(Application.userDesktopPath)); }
+catch (e) { console.log('fs:', e.message); }
+```
+
+State observed on **2026-11-01** (Affinity 3.3.1, macOS):
+
+| Capability | State | Effect when off |
+| --- | --- | --- |
+| **Filesystem** (`fs.js`) | **DISABLED** | `fs.*`, `File.*` → `PERMISSION_DENIED` |
+| **Network** (`network.js`) | **DISABLED** | `HttpRequest.do()` → `PERMISSION_DENIED` |
+| **Export to Desktop** (`doc.export`) | **DISABLED** | Depends on filesystem access → `PERMISSION_DENIED` |
+| **`eval` / `new Function`** | **DISABLED** | `allowCodeGenerationFromStrings` is `false` |
+| **Reading script library** | **DISABLED** | `list_library_scripts`, `read_library_script` → *"Reading library scripts has been disabled in Affinity settings."* |
+| **Saving to script library** | **DISABLED** | `save_script_to_library` → *"Saving to the scripts library has been disabled in Affinity settings."* |
+| **Recording task hints** | **DISABLED** | `add_sdk_hint` → *"Adding hints to the preamble has been disabled in Affinity settings."* |
+
+**Still working:** `execute_script`, `render_spread`, `render_selection`, `read_sdk_documentation_topic`,
+`list_sdk_documentation`, `search_sdk_hints`, `search_api_docs`, `search_manual_docs`.
+
+When a call returns `PERMISSION_DENIED` or one of the "disabled in Affinity settings" messages, the
+matching toggle is off — **tell the user which one and what you would do if it were enabled**; do not
+retry.
+
+### Consequences for your workflow
+
+- **Verify with renders only.** `render_spread` / `render_selection` are the sole visual channel; the
+  1024 px cap cannot be bypassed while export is blocked.
+- **Do not attempt file I/O** — no reading inputs, no writing outputs, no `doc.saveAs`.
+- **Do not rely on the script library.** You cannot save a script for reuse or read one back, so keep
+  any reusable script in your reply (or in the conversation) instead.
+- **You cannot record hints** via `add_sdk_hint`. Surface findings to the user in your reply instead, and
+  note that the shared hint pool will not learn from this session.
+
+### Filesystem API (if the toggle is on)
+
+`require('/fs.js')` exposes **synchronous** helpers directly (`exists`, `getFileSize`, `remove`,
+`rename`, `createDirectory`, …), plus `*Async` variants and a `promises` namespace. Read/write goes
+through `File`:
+
+```js
+const { File } = require('/fs.js');
+const fs = require('/fs.js');
+const { Application } = require('/application.js');
+
+const path = Application.userDesktopPath + '/out.txt';
+const w = File.create(path, 'w');        // 'w' truncates, 'r'/'rb' reads
+w.writeStringAsUtf8('hello');
+w.close();
+
+const buf = File.readAll(path);          // → Buffer
+console.log(buf.toString(), buf.length);
+
+fs.remove(path);
+```
+
+Access is scoped to `Application.userDesktopPath` (`~/Desktop`); `/tmp` and repo paths fail with
+`PERMISSION_DENIED` even when the toggle is on.
+
+### Network API (if the toggle is on)
+
+```js
+const { HttpRequest, RequestMethod } = require('/network.js');
+const req = HttpRequest.create('https://example.com', RequestMethod.Get);
+req.setTimeoutInSec(15);
+const res = req.do().response;
+console.log(res.statusCode, res.content.length);
+```
+
+- `RequestMethod` has only **`Get`** and **`Post`**.
+- `res.statusCode` is a **`HttpStatusCode` enum name** (`Ok`, `Forbidden`, …), not a number.
+- Headers via `req.setHeaderValue(key, value)`; the wrapper exposes **no request-body setter**, so
+  POSTs cannot carry a payload.
+- `req.do()` is synchronous; `doAsync(callback)` exists for non-blocking use.
 
 ## Object model
 
@@ -165,6 +298,21 @@ Entry points:
 - `doc.pageCount`, `doc.spreadCount`, `doc.isDirty`, `doc.isReadOnly`, `doc.title`, `doc.path`.
 
 **Critical:** setting `doc.currentSpread` clears the selection. Set the spread first, then select.
+
+### Working with documents
+
+- `Document.all` is a **plain Array**, not a `Collection` — `Document.all.toArray()` throws
+  `toArray is not a function`. Use `length` and index access.
+- `Document.current` returns a **new wrapper object on every access**, so
+  `Document.all[i] === Document.current` is `false` even for the same document. Compare by
+  `sessionUuid` (or `title`) instead.
+- **Several documents can be open at once.** Confirm which one you are editing via `doc.sessionUuid`
+  before mutating; never assume the front document is the one you drew into.
+- There is **no `Document.close()`** — a document created by a script cannot be closed through the
+  SDK. Prefer editing the current document (clear and redraw) over `Document.create`, and tell the
+  user when you leave a new document open.
+- `doc.sessionUuid` is the only way to address a document for `render_spread` / `render_selection`,
+  and no tool lists documents — log the uuid whenever you create or select one.
 
 Spread/artboard sizing and properties:
 
@@ -298,6 +446,13 @@ plus adders for every adjustment/filter raster node. Flags: `autoName`, `forcePi
 `clearCurrentSelection`, `appendCurrentSelection`, `setInsertionTarget`,
 `setInsertionTargetSelection`, `setInsertionMode`.
 
+**Batch creation is ~50× faster.** Measured on an 800×600 px document: **250 nodes via one
+`AddChildNodesCommandBuilder` command took 4 ms**, while **50 nodes via per-node `doc.addNode` took
+93 ms** (~1.9 ms each). For more than a handful of nodes, build one command and call
+`createCommand(true)` so the new nodes come back selected. Other measured costs: select 300 nodes
+2 ms, recolour 300 nodes 24 ms, transform 300 nodes 2 ms, boolean union of 150 circles 198 ms, delete
+301 nodes 149 ms.
+
 Compound and transform commands:
 
 ```js
@@ -317,6 +472,18 @@ duplicateNodes })`. `DocumentCommand.createSetBrushFill(selection, colourOrDescr
 `createSetDocumentProperties`, `createSetExportConfig`, `createUndo`/`createRedo`,
 `createClearPreviews`, and a `create*` factory for essentially every document operation. Commands
 expose `newNodes` after execution.
+
+## History and undo
+
+- `doc.undo()` / `doc.redo()` work, but **undo is slower than redo** (~11 ms vs ~2 ms per step on a
+  300-node document).
+- `doc.history.undoDescription` **throws `INVALID_OP`** when the history is empty (a freshly opened
+  document). Guard the read, or check `doc.history.position > 0` first — `position` is always safe.
+- `doc.history.position` can read **stale inside a large batch**: after 56 `doc.undo()` calls in one
+  script it still reported 56, even though the undos had applied (a redo round trip restored the
+  document exactly). Batches of ~20 report correctly. **Assert on node counts, not on `position`.**
+- Undo is cheap for experimentation, but for repeated redraws prefer clear-and-redraw in place
+  (see Recipes) so the history does not grow without bound.
 
 ## Geometry, colour, fills, strokes
 
@@ -452,6 +619,13 @@ records.all.forEach(r => console.log(r.path, r.isSuccess, r.errorMessage));
 Areas: `createForWholeDocument`, `createForCurrentSpread`, `createForCurrentPage`,
 `createForArtboard(artboard)`, `createForSelection(selection)`, `createForSelectionArea(...)`,
 `createForPages([...])`, `createForSpreads([...])`.
+
+**Export requires filesystem permission, which is currently DISABLED** — `doc.export(...)` fails with
+`PERMISSION_DENIED`, as do `doc.saveAs` / `doc.saveAsPackage` / `doc.save`. If the user enables it,
+export writes to `~/Desktop` only; presets include `PNG`, `JPEG (High quality)`,
+`SVG (digital - high quality)`, `PDF (digital - high quality)`, `TIFF`, `PSD`, `WebP` — enumerate with
+`FileExportOptions.allPresetNames`. Exporting at full resolution bypasses the 1024 px render cap, so it
+is the better verification channel when available.
 
 For per-node export settings use `node.exportConfig` (`ExportConfig` from `/exportconfig.js`) with
 `ExportFormat`/`ExportScale`/`ExportSize`, and apply it via
@@ -660,34 +834,72 @@ doc.deleteSelection(null, false);
 console.log(doc.currentSpread.children.all.toArray().length);   // 0
 ```
 
+## Error catalogue
+
+Messages are plain sentences, sometimes with a trailing colon, and carry no structured context —
+match on the text, not on a code.
+
+| Message | Meaning | Action |
+| --- | --- | --- |
+| `ERROR: The preamble documentation topic has not yet been read.` | Mandatory start skipped | Call `read_sdk_documentation_topic("preamble")` |
+| `You MUST read the 'preamble' documentation before using the SDK.` | Same, from the script path | Same |
+| `Error: INVALID_OP` when reading `history.undoDescription` | Undo history is empty | Guard the read |
+| `authorization channel closed` | Transient render failure | Retry once |
+| `No document with that Uuid exists.` | Wrong `sessionUuid` | Re-read `doc.sessionUuid` |
+| `Spread index out of bounds.` | `spread_index` out of range (0-based) | Max is `doc.spreadCount - 1` |
+| `NOT_ALLOWED` | AI / filesystem / networking disabled in Affinity settings | Tell the user; do not retry |
+| `PERMISSION_DENIED` | Filesystem, network or export is toggled off (or a path outside `~/Desktop`) | Tell the user which toggle; do not retry |
+| `Reading library scripts has been disabled in Affinity settings.` | `list_library_scripts` / `read_library_script` blocked | Ask the user for the script instead |
+| `Saving to the scripts library has been disabled in Affinity settings.` | `save_script_to_library` blocked | Give the script inline in your reply |
+| `Adding hints to the preamble has been disabled in Affinity settings.` | `add_sdk_hint` blocked | Surface the finding in your reply |
+| `Error: <message>` + stack | Your script threw | Fix the script |
+
 ## Gotchas
+
+### Documents
 
 - `Document.current` is `null` when no document is open — guard before doing anything.
 - Setting `doc.currentSpread` clears the selection. Order: spread → selection → edit.
+- Several documents may be open; identify the target by `sessionUuid` before mutating.
+- There is no `Document.close()` — avoid creating stray documents.
+- If an operation silently does nothing, check `doc.isReadOnly`, `node.isEditable`/`isLocked`, and
+  whether you actually changed the current spread.
+
+### Collections and handles
+
 - `Collection` is lazy; `.length` walks the generator. Prefer `.toArray()` once.
-- Previews (`preview = true`) actually modify the document. Capture boxes/transforms first.
+- `Document.all` is an **Array**, not a `Collection` — it has no `.toArray()`.
 - Wrap raw handles with `createTypedNode(handle)`, not `new Node(handle)`.
-- `require('/…')` takes a leading slash; native modules use the `affinity:` scheme.
-- Examples end with `module.exports.main = main;` — do not copy that.
-- `render_spread`'s `spread_index` is 0-based, not a page number.
-- If an operation silently does nothing, check `doc.isReadOnly`, `node.isEditable`/`isLocked`,
-  and whether you actually changed the current spread.
 - `HandleObject` requires a non-null handle — never construct one yourself from `null`.
-- Pixel accessors must be `dispose()`d; they are not garbage-collected.
+
+### Node definitions
+
 - `doc.addNode(def)` returns `undefined` — take the new node from `doc.selection` instead.
-- `ShapeNodeDefinition.create` / `PolyCurveNodeDefinition.create` need a `LineStyleDescriptor`;
-  a raw `LineStyle` throws `expected parameter lineStyleDescriptor to be
-  LineStyleDescriptorHandle`.
-- `PolyCurveNodeDefinition.create` requires **all five** args (`FillDescriptor.createNone()` for
-  the transparency fill); it dereferences `.handle` on each.
+- `ShapeNodeDefinition.create` / `PolyCurveNodeDefinition.create` need a `LineStyleDescriptor`; a raw
+  `LineStyle` throws `expected parameter lineStyleDescriptor to be LineStyleDescriptorHandle`.
+- `PolyCurveNodeDefinition.create` requires **all five** args (`FillDescriptor.createNone()` for the
+  transparency fill); it dereferences `.handle` on each.
 - Nodes stack in insertion order — later `addNode` calls sit on top. Create back-to-front.
 - `PolyCurveNode` has no `curves` setter; to re-shape it, delete and re-add the node.
 - `LineStyle` weight is in **pixels at `doc.dpi`** (`setLineWeight` sets it directly; use
   `setLineWeightPts` for points).
-- `render_selection` renders an empty checkerboard when the selected nodes span nearly the whole
+
+### Rendering
+
+- `render_spread`'s `spread_index` is 0-based, not a page number.
+- `render_selection` renders an **empty checkerboard** when the selected nodes span nearly the whole
   spread (e.g. two arms on opposite sides) — select a single node for a usable close-up.
-- A render call can fail with `authorization channel closed`. That is a transient bridge error, not
-  a script bug — retry it once before investigating.
+- Output is capped at **1024 px** on the longest side; there is no format or size parameter. For full
+  resolution, export to the Desktop instead (see Export).
+- A render can fail with `authorization channel closed`. That is transient, not a script bug — retry
+  once.
+
+### Scripts and runtime
+
+- Previews (`preview = true`) actually modify the document. Capture boxes/transforms first.
+- `require('/…')` takes a leading slash; native modules use the `affinity:` scheme.
+- Examples end with `module.exports.main = main;` — do not copy that.
+- Pixel accessors must be `dispose()`d; they are not garbage-collected.
 
 ## Verification loop
 
@@ -697,12 +909,20 @@ console.log(doc.currentSpread.children.all.toArray().length);   // 0
 4. Iterate; `doc.undo()` is cheap when experimenting on a real document. For repeated iterations on
    the same document, clear and redraw in place (see Recipes) rather than creating new documents.
 5. For detail work, `render_selection` a **single** node — selecting several widely separated nodes
-   renders empty.
+   renders empty, and the output is capped at 1024 px.
 6. Retry a failed render once (`authorization channel closed` is transient).
-7. When the user is happy, offer `save_script_to_library` so the script is reusable.
+7. When the user is happy, **tell them the script inline** — `save_script_to_library` is disabled, so it
+   cannot be stored for reuse.
 
 ## Recording knowledge
 
 Call `add_sdk_hint` immediately after discovering something non-obvious by experimentation — a
-parameter range, a permission quirk, a working command sequence. Keep hints short, factual and
-specific to this Affinity build.
+parameter range, a permission quirk, a working command sequence.
+
+**`add_sdk_hint` is currently disabled** (*"Adding hints to the preamble has been disabled in Affinity
+settings."*). When it is off, state the finding in your reply to the user instead, and note that the
+shared pool will not learn from this session.
+
+**Keep hints short when they are enabled.** The preamble is delivered to every session before anything
+else, and hints accumulate there — each one is a permanent context cost. Write **one or two sentences,
+one fact each**, and put explanatory detail in this skill file rather than in the hint pool.

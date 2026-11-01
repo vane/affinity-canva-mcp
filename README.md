@@ -2,14 +2,18 @@
 
 A workspace for driving **Affinity by Canva** from an AI agent through the Affinity MCP server.
 Everything in Affinity is done by writing JavaScript against the SDK and running it with
-`execute_script` — there is no "apply effect" tool. This repo holds the agent skill that teaches
-that workflow, a runnable example, and an optional local mirror of the SDK sources.
+`execute_script` — there is no "apply effect" tool. This repo holds the agent skill that teaches that
+workflow, a stdio↔SSE bridge so any MCP client can reach Affinity, and an optional local copy of the
+SDK sources.
 
 ## Layout
 
 | Path | Purpose |
 | --- | --- |
 | `.agents/skills/affinity-mcp/` | The **Affinity MCP skill** — the committable deliverable. |
+| `bin/` | `run` wrapper, `affinity-bridge.mjs` and `SMOKE_TESTS.md` — stdio↔SSE bridge (see [`bin/README.md`](bin/README.md)). |
+| `tests/` | Bridge integration tests against a fake Affinity SSE server. |
+| `mcp-server-report.md` | Analysis of the MCP server: protocol, tool gaps, measurements, per-finding status. |
 | `docs/` | Extracted SDK sources, optional (see below). |
 
 ### The skill
@@ -17,9 +21,7 @@ that workflow, a runnable example, and an optional local mirror of the SDK sourc
 ```
 .agents/skills/affinity-mcp/
 ├── SKILL.md                      # instructions the agent loads
-├── README.md                     # skill overview, install and usage
-└── examples/
-    └── one-eyed-monster.js       # complete working line-art example
+└── README.md                     # skill overview, install and usage
 ```
 
 The skill is self-contained: it needs nothing else from this repo. Start with
@@ -28,8 +30,8 @@ The skill is self-contained: it needs nothing else from this repo. Start with
 
 It covers the mandatory preamble/doc-read workflow, the document/node/selection object model, node
 definitions and z-order, commands and boolean welding, geometry and curve building, colour, fills,
-strokes, units, text, raster pixels, dialogs, export, permission limits, and hint recording — plus a
-worked example of drawing line-art from overlapping parts.
+strokes, units, text, raster pixels, dialogs, export, permission limits, and hint recording — plus
+guidance for drawing line-art from overlapping parts.
 
 ### `docs/` — extracted SDK sources
 
@@ -49,10 +51,22 @@ is absent, fall back to `read_sdk_documentation_topic` and `search_api_docs`. Do
 ## Requirements
 
 - Affinity by Canva (verified against **3.3.1** on macOS) with the **Affinity MCP server** running.
-- Script/AI permissions enabled in Affinity. If a call returns `NOT_ALLOWED`, AI, filesystem or
-  networking access is disabled in Affinity's settings.
-- In this setup `fs.js` and `network.js` throw `PERMISSION_DENIED`, so scripts must not rely on file
-  I/O or outbound HTTP; verify visually with `render_spread` / `render_selection` instead of exporting.
+- Node **18+** to run the bridge (`bin/run`) — it relies on the global `fetch`.
+- **Permissions are toggles in Affinity's settings, not fixed.** Observed state on 2026-11-01:
+
+  | Capability | State |
+  | --- | --- |
+  | Filesystem (`fs.js`) | **Disabled** — `PERMISSION_DENIED` |
+  | Network (`network.js`) | **Disabled** — `PERMISSION_DENIED` |
+  | Export to Desktop (`doc.export`) | **Disabled** — depends on filesystem access |
+  | `eval` / `new Function` | **Disabled** (`allowCodeGenerationFromStrings: false`) |
+  | Reading script library (`list_library_scripts`, `read_library_script`) | **Disabled** |
+  | Saving to script library (`save_script_to_library`) | **Disabled** |
+  | Recording hints (`add_sdk_hint`) | **Disabled** |
+
+  Core tools still work: `execute_script`, `render_spread`, `render_selection` and the documentation
+  lookups. Check the live state before relying on any of the above; `SKILL.md` → *Permissions* has the
+  probe snippet and what each toggle means for the workflow.
 
 ## Quick start
 
@@ -64,3 +78,61 @@ is absent, fall back to `read_sdk_documentation_topic` and `search_api_docs`. Do
 5. Save good scripts with `save_script_to_library` and record new SDK findings with `add_sdk_hint`.
 
 To install the skill globally, copy `.agents/skills/affinity-mcp/` to `~/.agents/skills/affinity-mcp/`.
+
+## Running the bridge
+
+`bin/affinity-bridge.mjs` exposes Affinity's SSE-only MCP server to **stdio** MCP clients.
+
+```bash
+./bin/run
+```
+
+Point your client at the wrapper (use an absolute path):
+
+```json
+{
+  "mcpServers": {
+    "affinity": {
+      "command": "/absolute/path/to/ai-affinity-mcp/bin/run"
+    }
+  }
+}
+```
+
+To override the endpoint, pass it through `env`:
+
+```json
+{
+  "mcpServers": {
+    "affinity": {
+      "command": "/absolute/path/to/ai-affinity-mcp/bin/run",
+      "env": { "AFFINITY_MCP_SSE_URL": "http://[::1]:6767/sse" }
+    }
+  }
+}
+```
+
+Configuration, message flow, reconnect and retry behaviour, log messages and maintainer rules are
+documented in [`bin/README.md`](bin/README.md).
+
+## Tests
+
+Integration tests in `tests/` spawn the bridge against a fake Affinity SSE server:
+
+```bash
+node --test tests/*.test.mjs
+```
+
+See [`tests/README.md`](tests/README.md) for the case matrix and how to add tests, and
+[`bin/SMOKE_TESTS.md`](bin/SMOKE_TESTS.md) for the live-server checklist to run after any change.
+
+## Server analysis
+
+[`mcp-server-report.md`](mcp-server-report.md) analyses the MCP server itself — from static analysis of
+`liblibmcp.dylib`, live testing through this bridge, and a load test. It records the protocol and
+transport, tool-surface gaps, error and output shapes, rendering limits, SDK ergonomics, measured
+performance, open questions, and the implementation status of every finding (which are mitigated in
+`bin/affinity-bridge.mjs`, and which need a change inside Affinity).
+
+Consult it before proposing changes to the server; measurements, baselines and the per-finding status
+live there rather than here.
