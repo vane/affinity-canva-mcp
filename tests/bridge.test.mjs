@@ -155,6 +155,79 @@ test("retries a read-only tool once on 'authorization channel closed'", async (t
   assert.equal(fake.state.requests.length, 2);
 });
 
+test("does not retry a non-tool method on a transient error", async (t) => {
+  let calls = 0;
+
+  const { fake, bridge } = await setup(t, {
+    fakeOptions: {
+      respond: (message) => {
+        calls += 1;
+        return {
+          jsonrpc: "2.0",
+          id: message.id,
+          error: { code: -32603, message: "authorization channel closed" },
+        };
+      },
+    },
+  });
+
+  // `ping` is not a tool call, so requestLabel() returns "ping" — not retryable.
+  bridge.send({ jsonrpc: "2.0", id: 1, method: "ping" });
+  const response = await bridge.waitForResponse(1);
+
+  assert.equal(response.error.message, "authorization channel closed");
+  assert.equal(calls, 1, "non-tool methods must never be re-sent");
+  assert.equal(fake.state.requests.length, 1);
+});
+
+test("does not retry a tool call with no tool name", async (t) => {
+  let calls = 0;
+
+  const { bridge } = await setup(t, {
+    fakeOptions: {
+      respond: (message) => {
+        calls += 1;
+        return {
+          jsonrpc: "2.0",
+          id: message.id,
+          error: { code: -32603, message: "authorization channel closed" },
+        };
+      },
+    },
+  });
+
+  // requestLabel() falls back to "tools/call", which is not in RETRYABLE_TOOLS.
+  bridge.send({ jsonrpc: "2.0", id: 1, method: "tools/call", params: {} });
+  const response = await bridge.waitForResponse(1);
+
+  assert.equal(response.error.message, "authorization channel closed");
+  assert.equal(calls, 1);
+});
+
+test("forwards notifications without expecting a response", async (t) => {
+  const { fake, bridge } = await setup(t);
+
+  bridge.send({ jsonrpc: "2.0", method: "notifications/initialized", params: {} });
+
+  await bridge.waitFor(
+    () => fake.state.requests.some((r) => r.method === "notifications/initialized"),
+    { what: "the notification to be forwarded" },
+  );
+
+  await sleep(150);
+  assert.equal(bridge.messages.length, 0, "notifications have no id and must not produce output");
+});
+
+test("ignores invalid JSON from the client and keeps working", async (t) => {
+  const { bridge } = await setup(t);
+
+  bridge.sendRaw("this is not json");
+  bridge.send(toolCallRequest(1, "ping"));
+
+  const response = await bridge.waitForResponse(1);
+  assert.equal(response.result.ok, true);
+});
+
 test("does not retry a mutating tool", async (t) => {
   let calls = 0;
 

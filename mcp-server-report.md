@@ -265,7 +265,7 @@ Kept separate because these are improvements to the stdio↔SSE bridge, not the 
 - **Covered by tests:** the paths a live server cannot easily produce — mid-session reconnect, the
   endpoint-discovery timeout, the 404/410 stale-endpoint retry, request timeouts, the transient-error
   retry, POST-body responses, concurrency, large payloads and clean exit — are exercised by the
-  fake-server suite in `tests/` (`node --test tests/*.test.mjs`, 14 cases).
+  fake-server suite in `tests/` (`node --test tests/*.test.mjs`, 18 cases).
 
 ## 11. Skill improvements (`SKILL.md`)
 
@@ -360,7 +360,7 @@ No upstream dependency — all of the following is implemented and tested here.
 | Flush-then-exit shutdown (1.5 s grace) | `bin/affinity-bridge.mjs` | Done |
 | Unknown SSE events ignored, `heartbeat` documented (finding 21) | `bin/affinity-bridge.mjs` + `SKILL.md` § Transport | Done |
 | Protocol-version translation (`initialize` request and response) | `bin/affinity-bridge.mjs` | Done |
-| Fake-SSE integration tests, 14 cases, all passing | `tests/` | Done |
+| Fake-SSE integration tests, 18 cases, all passing | `tests/` | Done |
 | Live smoke-test checklist, 14 steps | `bin/SMOKE_TESTS.md` | Done |
 | Skill: document identity, history semantics, bulk perf, output formats, render cap, error catalogue, transport facts, hint hygiene | `.agents/skills/affinity-mcp/SKILL.md` | Done |
 

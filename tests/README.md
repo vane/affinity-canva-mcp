@@ -36,6 +36,10 @@ Node 24 — it treats the directory as a module — so use the glob form above.
 | stale endpoint (404) | One reconnect + exactly one retry |
 | transient error retry | `authorization channel closed` on a read-only tool is retried once and suppressed |
 | mutating tool not retried | `execute_script` is never re-sent |
+| non-tool method not retried | A `ping` failure is never re-sent (guards `requestLabel`) |
+| tool call without a name | `tools/call` with no `params.name` falls back to `"tools/call"` and is not retried |
+| notifications forwarded | No `id`, so no response is expected and nothing is written to stdout |
+| invalid client JSON | A malformed stdin line is ignored; the next request still succeeds |
 | request timeout | Unanswered request becomes a `-32001` error instead of hanging |
 | JSON POST body | Response delivered in the POST body is forwarded |
 | concurrency | 8 simultaneous requests stay matched to their ids |

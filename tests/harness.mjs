@@ -59,6 +59,11 @@ export class BridgeHarness {
     this.proc.stdin.write(`${JSON.stringify(message)}\n`);
   }
 
+  /** Write a raw line (e.g. malformed JSON) to the bridge's stdin. */
+  sendRaw(line) {
+    this.proc.stdin.write(`${line}\n`);
+  }
+
   /** All responses received so far for a given id. */
   responsesFor(id) {
     return this.messages.filter((m) => m.id === id);

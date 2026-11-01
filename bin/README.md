@@ -181,7 +181,7 @@ Integration tests spawn this file as a real subprocess against a fake SSE server
 node --test tests/*.test.mjs
 ```
 
-14 cases cover the handshake, forwarding, heartbeat handling, reconnect, endpoint rotation, request
+18 cases cover the handshake, forwarding, heartbeat handling, reconnect, endpoint rotation, request
 timeout, transient-error retry (and that mutating tools are *not* retried), POST-body responses,
 concurrency, large payloads, endpoint-discovery timeout, clean exit and non-fatal POST failures. See
 [`../tests/README.md`](../tests/README.md) for the matrix and how to add a case.

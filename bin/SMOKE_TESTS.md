@@ -35,7 +35,7 @@ document from test 4.
 | 11 | History | `execute_script` | Undo/redo restores node count |
 | 12 | Concurrency | 6 × `execute_script` | Each returns its own marker |
 | 13 | Cleanup | `execute_script` | 0 nodes |
-| 14 | Bridge tests (optional) | `node --test tests/*.test.mjs` | 14/14 pass |
+| 14 | Bridge tests (optional) | `node --test tests/*.test.mjs` | 18/18 pass |
 
 ---
 
@@ -263,7 +263,7 @@ Automated, against a fake SSE server. Run from the **repo root**:
 node --test tests/*.test.mjs
 ```
 
-**Expect:** 14/14 pass. Note `node --test tests/` does **not** work on Node 24 — use the glob form.
+**Expect:** 18/18 pass. Note `node --test tests/` does **not** work on Node 24 — use the glob form.
 
 Two live-only checks that the suite cannot cover:
 
