@@ -6,11 +6,16 @@
 //   node render.js <drawing.js> [out.svg]      one script
 //   node render.js --all [inDir] [outDir]      every .js in a folder
 //
-// With no out path, output goes next to the input with a .svg extension.
+// With no out path, output goes to /tmp/svg-renderer.
 
 const fs = require('node:fs');
 const path = require('node:path');
 const { renderFileToSvg } = require('./shim/index.js');
+
+// Default destination, so a run never leaves SVG files in the repository.
+function defaultOutDir() {
+    return path.join('/tmp', 'svg-renderer');
+}
 
 function renderOne(inPath, outPath) {
     const { svg, doc, logs, warnings } = renderFileToSvg(inPath);
@@ -60,17 +65,18 @@ if (!args.length || args[0] === '-h' || args[0] === '--help') {
     console.log('Usage:');
     console.log('  node render.js <drawing.js> [out.svg]');
     console.log('  node render.js --all [inDir] [outDir]');
+    console.log('  (default output: ' + defaultOutDir() + ')');
     process.exit(0);
 }
 
 if (args[0] === '--all') {
     const inDir = args[1] || path.join(__dirname, '..', 'examples', 'scripts');
-    const outDir = args[2] || path.join(__dirname, 'out');
+    const outDir = args[2] || defaultOutDir();
     renderAll(path.resolve(inDir), path.resolve(outDir));
 } else {
     const inPath = path.resolve(args[0]);
     const outPath = args[1]
         ? path.resolve(args[1])
-        : inPath.replace(/\.js$/, '.svg');
+        : path.join(defaultOutDir(), path.basename(inPath).replace(/\.js$/, '.svg'));
     renderOne(inPath, outPath);
 }
