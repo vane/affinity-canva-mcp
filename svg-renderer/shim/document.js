@@ -12,6 +12,7 @@ class ShimDocument {
         this.heightPixels = opts.height;
         this.dpi = opts.dpi;
         this.units = opts.units;
+        this.rasterFormat = opts.rasterFormat || null;
         this.title = 'shim';
         this.sessionUuid = 'shim-' + (++docCounter);
         this.nodes = [];

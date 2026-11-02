@@ -9,6 +9,54 @@ class Rectangle {
     }
 }
 
+// Affine transform, mirroring the SDK's value class so scripts that place
+// gradients (FillDescriptor.create(fill, scaleWithObject, transform, …)) can run.
+// The shim does not apply transforms to geometry or fills; the SVG writer warns
+// when a gradient carries one.
+class Transform {
+    constructor(a = 1, b = 0, c = 0, d = 1, tx = 0, ty = 0) {
+        this.a = a;
+        this.b = b;
+        this.c = c;
+        this.d = d;
+        this.tx = tx;
+        this.ty = ty;
+    }
+
+    static createIdentity() {
+        return new Transform();
+    }
+
+    static createTranslate(x, y) {
+        return new Transform(1, 0, 0, 1, x, y);
+    }
+
+    static createScale(sx, sy = sx) {
+        return new Transform(sx, 0, 0, sy, 0, 0);
+    }
+
+    static createRotate(radians) {
+        const cos = Math.cos(radians);
+        const sin = Math.sin(radians);
+        return new Transform(cos, sin, -sin, cos, 0, 0);
+    }
+
+    // this ∘ other: the point is transformed by `other` first.
+    multiply(other) {
+        return new Transform(
+            this.a * other.a + this.c * other.b,
+            this.b * other.a + this.d * other.b,
+            this.a * other.c + this.c * other.d,
+            this.b * other.c + this.d * other.d,
+            this.a * other.tx + this.c * other.ty + this.tx,
+            this.b * other.tx + this.d * other.ty + this.ty);
+    }
+
+    get [Symbol.toStringTag]() {
+        return 'Transform';
+    }
+}
+
 class Curve {
     constructor(beziers, isClosed) {
         this.beziers = beziers;      // [{ start, c1, c2, end }]
@@ -143,6 +191,7 @@ function rectanglePolyCurve(rect) {
 
 module.exports = {
     Rectangle,
+    Transform,
     Curve,
     CurveBuilder,
     PolyCurve,

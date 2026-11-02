@@ -7,12 +7,17 @@
 //
 //   enums.js       enum helpers + UnitType, LineCap, LineJoin, LineType,
 //                  StrokeAlignment, FillType, ShapeCornerType, ShapeType
-//   colours.js     RGB8
-//   fills.js       FillDescriptor
+//   colours.js     RGB8, Gradient
+//   fills.js       Fill, SolidFill, GradientFill, FillDescriptor
 //   linestyle.js   LineStyle, LineStyleDescriptor
 //   geometry.js    Rectangle, Curve, CurveBuilder, PolyCurve
 //   shapes.js      Shape + every Shape* class
-//   nodes.js       PolyCurveNodeDefinition, ShapeNodeDefinition
+//   fonts.js       Font, FontFamily, FontWeight, FontWidth, FontField
+//   glyphatts.js   GlyphAtts + character formatting enums
+//   paragraphatts.js ParagraphAtts + paragraph formatting enums
+//   storybuilder.js StoryBuilder
+//   storydelta.js  StoryDelta + formatting delta factories
+//   nodes.js       PolyCurveNodeDefinition, ShapeNodeDefinition, text definitions
 //   document.js    ShimDocument, NewDocumentOptions
 //   svg.js         document -> SVG
 //   warnings.js    approximation warnings collected per run
@@ -29,12 +34,22 @@ const fs = require('node:fs');
 const path = require('node:path');
 
 const enums = require('./enums.js');
-const { RGB8 } = require('./colours.js');
-const { FillDescriptor } = require('./fills.js');
+const { RGB8, Gradient } = require('./colours.js');
+const {
+    Fill, SolidFill, GradientFill, FillDescriptor, makeFillDescriptor,
+} = require('./fills.js');
 const { LineStyle, LineStyleDescriptor } = require('./linestyle.js');
-const { Rectangle, Curve, CurveBuilder, PolyCurve } = require('./geometry.js');
+const { Rectangle, Transform, Curve, CurveBuilder, PolyCurve } = require('./geometry.js');
 const shapes = require('./shapes.js');
-const { PolyCurveNodeDefinition, ShapeNodeDefinition } = require('./nodes.js');
+const fonts = require('./fonts.js');
+const glyphatts = require('./glyphatts.js');
+const paragraphatts = require('./paragraphatts.js');
+const { StoryBuilder } = require('./storybuilder.js');
+const storydelta = require('./storydelta.js');
+const {
+    PolyCurveNodeDefinition, ShapeNodeDefinition, TextNodeDefinition,
+    FrameTextNodeDefinition, ArtTextNodeDefinition,
+} = require('./nodes.js');
 const { ShimDocument, NewDocumentOptions } = require('./document.js');
 const { svgFromDocument } = require('./svg.js');
 const warnings = require('./warnings.js');
@@ -42,17 +57,63 @@ const warnings = require('./warnings.js');
 // The SDK modules a drawing script may require.
 const sdkModules = {
     '/document.js': { Document: null, NewDocumentOptions },
-    '/nodes.js': { PolyCurveNodeDefinition, ShapeNodeDefinition },
+    '/nodes.js': {
+        PolyCurveNodeDefinition, ShapeNodeDefinition, TextNodeDefinition,
+        FrameTextNodeDefinition, ArtTextNodeDefinition,
+    },
     '/shapes.js': shapes.sdkSurface,
-    '/geometry.js': { Rectangle, Curve, CurveBuilder, PolyCurve },
-    '/colours.js': { RGB8 },
-    '/fills.js': { FillDescriptor, FillType: enums.FillType },
+    '/geometry.js': { Rectangle, Transform, Curve, CurveBuilder, PolyCurve },
+    '/colours.js': { RGB8, Gradient },
+    '/fills.js': {
+        FillDescriptor, FillType: enums.FillType, Fill, SolidFill, GradientFill,
+        GradientFillType: enums.GradientFillType, makeFillDescriptor,
+    },
     '/linestyle.js': {
         LineStyle, LineStyleDescriptor,
         LineCap: enums.LineCap, LineJoin: enums.LineJoin,
         LineType: enums.LineType, StrokeAlignment: enums.StrokeAlignment,
     },
     '/units.js': { UnitType: enums.UnitType },
+    '/fonts.js': {
+        Font: fonts.Font, FontFamily: fonts.FontFamily, FontCollection: fonts.FontCollection,
+        FontField: fonts.FontField, FontWeight: fonts.FontWeight, FontWidth: fonts.FontWidth,
+    },
+    '/glyphatts.js': {
+        GlyphAtts: glyphatts.GlyphAtts,
+        TypographicLineType: glyphatts.TypographicLineType,
+        SuperSubType: glyphatts.SuperSubType,
+        CapsType: glyphatts.CapsType,
+        LeadingOverrideType: glyphatts.LeadingOverrideType,
+        OpticalAlignmentType: glyphatts.OpticalAlignmentType,
+        TocRoleType: glyphatts.TocRoleType,
+        GlyphAttDoubleType: glyphatts.GlyphAttDoubleType,
+        GlyphAttStringType: glyphatts.GlyphAttStringType,
+    },
+    '/paragraphatts.js': {
+        ParagraphAtts: paragraphatts.ParagraphAtts,
+        ParagraphAlignXType: paragraphatts.ParagraphAlignXType,
+        ParagraphLeadingType: paragraphatts.ParagraphLeadingType,
+        ParagraphAttDoubleType: paragraphatts.ParagraphAttDoubleType,
+        ParagraphAttStringType: paragraphatts.ParagraphAttStringType,
+    },
+    '/storybuilder.js': { StoryBuilder },
+    '/storydelta.js': {
+        StoryDelta: storydelta.StoryDelta,
+        CapsType: storydelta.CapsType,
+        FontField: storydelta.FontField,
+        FontWidth: storydelta.FontWidth,
+        GlyphAttDoubleType: storydelta.GlyphAttDoubleType,
+        GlyphAttStringType: storydelta.GlyphAttStringType,
+        LeadingOverrideType: storydelta.LeadingOverrideType,
+        OpticalAlignmentType: storydelta.OpticalAlignmentType,
+        ParagraphAlignXType: storydelta.ParagraphAlignXType,
+        ParagraphAttDoubleType: storydelta.ParagraphAttDoubleType,
+        ParagraphAttStringType: storydelta.ParagraphAttStringType,
+        ParagraphLeadingType: storydelta.ParagraphLeadingType,
+        SuperSubType: storydelta.SuperSubType,
+        TocRoleType: storydelta.TocRoleType,
+        TypographicLineType: storydelta.TypographicLineType,
+    },
 };
 
 // Runs one drawing script and returns its SVG. Fresh state per call.

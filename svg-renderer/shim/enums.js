@@ -24,6 +24,7 @@ const LineJoin = enumOf(['MiterLegacy', 'Miter', 'Round', 'Bevel']);
 const LineType = enumOf(['None', 'Solid', 'Dash', 'Texture']);
 const StrokeAlignment = enumOf(['Centre', 'Inside', 'Outside']);
 const FillType = enumOf(['Unknown', 'None', 'Solid', 'Gradient', 'Bitmap', 'Mesh', 'Hatch', 'Diffusion']);
+const GradientFillType = enumOf(['Linear', 'Elliptical', 'Conical', 'Radial']);
 const ShapeCornerType = enumOf(['Round', 'Straight', 'RoundInverse', 'Cutout', 'None']);
 const ShapeType = enumOf([
     'Rectangle', 'Ellipse', 'Triangle', 'Diamond', 'Trapezoid', 'Polygon', 'Star',
@@ -42,6 +43,50 @@ const ShapeSpiralStyle = enumOf([
 // Corner order matches Affinity's ShapeCornerIndex.
 const ShapeCornerIndex = enumOf(['TopLeft', 'TopRight', 'BottomRight', 'BottomLeft']);
 
+// Text formatting enums. Only the members the shim renders or the drawing scripts
+// commonly touch are listed; unknown members are absent rather than silently wrong.
+const ParagraphAlignXType = enumOf([
+    'Left', 'Centre', 'Right', 'JustifyLeft', 'JustifyCentre',
+    'JustifyRight', 'JustifyAll', 'AwayFromSpine', 'TowardsSpine',
+]);
+const ParagraphLeadingType = enumOf(['RelativeToHeight', 'Absolute']);
+const ParagraphAttDoubleType = enumOf([
+    'RelativeLeading', 'AbsoluteLeading', 'LeftIndent', 'RightIndent',
+    'FirstLineIndent', 'SpaceBefore', 'SpaceAfter', 'DefaultTabStops',
+    'MinWordSpacing', 'DesiredWordSpacing', 'MaxWordSpacing',
+    'MinLetterSpacing', 'DesiredLetterSpacing', 'MaxLetterSpacing',
+    'MinHyphenScore', 'HyphenationZone', 'HyphenationZoneCapitals',
+    'HyphenationZoneParagraphEnd', 'HyphenationZoneColumnEnd',
+    'LastLineOutdent', 'SpaceBetweenSameStyles',
+]);
+const ParagraphAttStringType = enumOf(['StyleName']);
+const GlyphAttDoubleType = enumOf([
+    'Height', 'CharacterSpacing', 'BaselineAdvance', 'AutoKernMinHeight',
+    'OffsetX', 'OffsetY', 'ManualKerning', 'ScaleX', 'ScaleY', 'ShearX',
+    'AbsoluteLeading',
+]);
+const GlyphAttStringType = enumOf([
+    'SpellingLanguageId', 'StyleName', 'HyphenationLanguageId',
+]);
+const TypographicLineType = enumOf(['None', 'Single', 'Double']);
+const CapsType = enumOf([
+    'None', 'CapsToSmallCaps', 'SmallCaps', 'AllCaps', 'AllSmallCaps',
+    'CapsToPetiteCaps', 'PetiteCaps', 'AllPetiteCaps', 'Titling', 'Unicase',
+]);
+const SuperSubType = enumOf(['None', 'Superscript', 'Subscript']);
+const LeadingOverrideType = enumOf(['None', 'AtLeast', 'Exactly']);
+const OpticalAlignmentType = enumOf(['None', 'Font', 'Manual']);
+const TocRoleType = enumOf(['None', 'PageNumber']);
+const FontWeight = enumOf([
+    'Thin', 'ExtraLight', 'Light', 'Normal', 'Medium',
+    'SemiBold', 'Bold', 'ExtraBold', 'Black',
+]);
+const FontWidth = enumOf([
+    'UltraCondensed', 'ExtraCondensed', 'Condensed', 'SemiCondensed',
+    'Normal', 'SemiExpanded', 'Expanded', 'ExtraExpanded', 'UltraExpanded',
+]);
+const FontField = enumOf(['FamilyName', 'PostscriptName', 'Weight', 'Italic', 'Width']);
+
 module.exports = {
     enumOf,
     UnitType,
@@ -50,9 +95,25 @@ module.exports = {
     LineType,
     StrokeAlignment,
     FillType,
+    GradientFillType,
     ShapeCornerType,
     ShapeType,
     ShapeArrowEndStyle,
     ShapeSpiralStyle,
     ShapeCornerIndex,
+    ParagraphAlignXType,
+    ParagraphLeadingType,
+    ParagraphAttDoubleType,
+    ParagraphAttStringType,
+    GlyphAttDoubleType,
+    GlyphAttStringType,
+    TypographicLineType,
+    CapsType,
+    SuperSubType,
+    LeadingOverrideType,
+    OpticalAlignmentType,
+    TocRoleType,
+    FontWeight,
+    FontWidth,
+    FontField,
 };
