@@ -18,13 +18,19 @@ svg-renderer/
 │   ├── index.js       # module map + runner (renderScriptToSvg / renderFileToSvg)
 │   ├── enums.js       # enum helper + UnitType, LineCap, LineJoin, LineType,
 │   │                  # StrokeAlignment, FillType, ShapeCornerType, ShapeType,
-│   │                  # ShapeArrowEndStyle, ShapeSpiralStyle, ShapeCornerIndex
-│   ├── colours.js     # RGB8
-│   ├── fills.js       # FillDescriptor
+│   │                  # ShapeArrowEndStyle, ShapeSpiralStyle, ShapeCornerIndex,
+│   │                  # ParagraphAlignXType, ParagraphLeadingType, FontWeight, …
+│   ├── colours.js     # RGB8, Gradient
+│   ├── fills.js       # Fill, SolidFill, GradientFill, FillDescriptor
 │   ├── linestyle.js   # LineStyle, LineStyleDescriptor
 │   ├── geometry.js    # Rectangle, Curve, CurveBuilder, PolyCurve
 │   ├── shapes.js      # Shape + every Shape* class
-│   ├── nodes.js       # PolyCurveNodeDefinition, ShapeNodeDefinition
+│   ├── fonts.js       # Font, FontFamily, FontCollection, FontWeight, FontWidth
+│   ├── glyphatts.js   # GlyphAtts + character formatting enums
+│   ├── paragraphatts.js # ParagraphAtts + paragraph formatting enums
+│   ├── storybuilder.js # StoryBuilder
+│   ├── storydelta.js  # StoryDelta + formatting delta factories
+│   ├── nodes.js       # PolyCurve/Shape/FrameText/ArtText node definitions
 │   ├── document.js    # ShimDocument, NewDocumentOptions
 │   ├── svg.js         # document -> SVG string
 │   └── warnings.js    # approximation warnings, reset per run
@@ -32,7 +38,9 @@ svg-renderer/
     ├── shapes-reference.json   # reference shape curves captured from Affinity
     ├── shim-core.test.mjs      # enums, colours, fills, line styles, geometry
     ├── shim-shapes.test.mjs    # shape geometry + reference comparison
+    ├── shim-gradients.test.mjs # gradient colours/fills and SVG gradient defs
     ├── shim-document.test.mjs  # document, node definitions, SVG writer
+    ├── shim-text.test.mjs      # fonts, glyph/paragraph atts, stories, text SVG
     └── shim-runner.test.mjs    # script runner, module map, warnings
 ```
 
@@ -42,25 +50,28 @@ sibling files and runs the script.
 ## Usage
 
 ```bash
-# one drawing, output next to the input
+# one drawing (output goes to /tmp/svg-renderer)
 node render.js ../examples/scripts/cat.js
 
 # one drawing, explicit output
-node render.js ../examples/scripts/cat.js out/cat.svg
+node render.js ../examples/scripts/cat.js /tmp/cat.svg
 
-# every drawing (input defaults to ../examples/scripts, output to ./out)
+# every drawing (input defaults to ../examples/scripts, output to /tmp/svg-renderer)
 node render.js --all
 
 # every drawing, explicit in/out folders
-node render.js --all ../examples/scripts out
+node render.js --all ../examples/scripts /tmp/drawings
 ```
+
+With no output path, SVGs are written to `/tmp/svg-renderer`, so a run never leaves files in the
+repository. `--help` prints the resolved path.
 
 Requires Node **18+** (`node:vm`, `node:fs`). No dependencies, nothing to install.
 
 Output looks like:
 
 ```
-cat.js                   520x800  22 nodes  4955 bytes -> out/cat.svg
+cat.js                   520x800  22 nodes  4955 bytes -> /tmp/svg-renderer/cat.svg
     nodes: Background, Tail, Ear left, Ear right, ...
 ```
 
@@ -71,12 +82,17 @@ The shim provides these modules, which is everything the drawings require:
 | Module | Provided |
 | --- | --- |
 | `/document.js` | `Document`, `NewDocumentOptions` |
-| `/nodes.js` | `PolyCurveNodeDefinition`, `ShapeNodeDefinition` |
+| `/nodes.js` | `PolyCurveNodeDefinition`, `ShapeNodeDefinition`, `TextNodeDefinition`, `FrameTextNodeDefinition`, `ArtTextNodeDefinition` |
 | `/shapes.js` | `Shape`, `ShapeRectangle`, `ShapeEllipse`, `ShapeTriangle`, `ShapeDiamond`, `ShapeTrapezoid`, `ShapePolygon`, `ShapeStar`, `ShapeSquareStar`, `ShapeDoubleStar`, `ShapeCloud`, `ShapeCog`, `ShapeArrow`, `ShapePie`, `ShapeCrescent`, `ShapeSegment`, `ShapeTear`, `ShapeHeart`, `ShapeSpiral`, `ShapeCalloutRectangle`, `ShapeCalloutEllipse`, `ShapeQRCode`, `ShapeCat`–`ShapeCat4`, `ShapeType`, `ShapeCornerType`, `ShapeCornerIndex`, `ShapeArrowEndStyle`, `ShapeSpiralStyle` |
-| `/geometry.js` | `Rectangle`, `Curve`, `CurveBuilder`, `PolyCurve` |
-| `/colours.js` | `RGB8` |
-| `/fills.js` | `FillDescriptor`, `FillType` |
+| `/geometry.js` | `Rectangle`, `Transform`, `Curve`, `CurveBuilder`, `PolyCurve` |
+| `/colours.js` | `RGB8`, `Gradient` |
+| `/fills.js` | `Fill`, `SolidFill`, `GradientFill`, `FillDescriptor`, `FillType`, `GradientFillType`, `makeFillDescriptor` |
 | `/linestyle.js` | `LineStyle`, `LineStyleDescriptor`, `LineCap`, `LineJoin`, `LineType`, `StrokeAlignment` |
+| `/fonts.js` | `Font`, `FontFamily`, `FontCollection`, `FontField`, `FontWeight`, `FontWidth` |
+| `/glyphatts.js` | `GlyphAtts`, `TypographicLineType`, `SuperSubType`, `CapsType`, `LeadingOverrideType`, `OpticalAlignmentType`, `TocRoleType`, `GlyphAttDoubleType`, `GlyphAttStringType` |
+| `/paragraphatts.js` | `ParagraphAtts`, `ParagraphAlignXType`, `ParagraphLeadingType`, `ParagraphAttDoubleType`, `ParagraphAttStringType` |
+| `/storybuilder.js` | `StoryBuilder` |
+| `/storydelta.js` | `StoryDelta` plus the formatting enums |
 | `/units.js` | `UnitType` |
 
 Anything else throws `SVG shim does not implement /x.js`, so a script that starts using more of the SDK
@@ -114,7 +130,9 @@ node --test test/*.test.mjs
 | --- | --- |
 | `shim-core.test.mjs` | enums, colours, fills, line styles, warnings, geometry builders |
 | `shim-shapes.test.mjs` | every shape's structure and parameter behaviour, plus a comparison with reference curves captured from Affinity |
+| `shim-gradients.test.mjs` | gradient colours, gradient fills/strokes and the SVG writer's gradient defs |
 | `shim-document.test.mjs` | `ShimDocument`, both node definitions, and the SVG writer |
+| `shim-text.test.mjs` | fonts, glyph and paragraph attributes, story building, deltas, text node definitions and the SVG writer's `<text>` output |
 | `shim-runner.test.mjs` | the script runner: module map, per-run isolation, warning plumbing |
 
 The shape comparison uses `test/shapes-reference.json` (Affinity's own curves for the same bounds) and
@@ -209,12 +227,135 @@ Two more parameter ranges are close but not exact: `ShapeCloud` with a non-canon
   `Round`.** A script that calls `setRadius` without setting `cornerType` gets square corners in both
   Affinity and the shim.
 
+## Gradient support
+
+Gradient fills and strokes are built with `Gradient` and `GradientFill`:
+
+```js
+const { RGB8, Gradient } = require('/colours.js');
+const { GradientFill, GradientFillType, FillDescriptor } = require('/fills.js');
+
+const gradient = Gradient.create([
+    { colour: RGB8(255, 90, 40), position: 0 },
+    { colour: RGB8(30, 90, 220), position: 1 },
+]);
+
+const fill = FillDescriptor.create(
+    GradientFill.create(gradient, GradientFillType.Linear));
+
+doc.addNode(ShapeNodeDefinition.create(
+    shape, rect, fill, FillDescriptor.createNone(), lsd, FillDescriptor.createNone()));
+```
+
+`FillDescriptor.createSolid(colour)` still handles solid fills, and `makeFillDescriptor`/`asFill`
+accept a `GradientFill` directly where a fill is expected.
+
+| Gradient type | SVG output |
+| --- | --- |
+| `Linear` | `<linearGradient>` spanning the node's bounding box left to right |
+| `Elliptical` | `<radialGradient>` centred on the bounding box |
+| `Radial` | `<radialGradient>` (approximated as elliptical) |
+| `Conical` | `<linearGradient>` (approximated; SVG has no conical gradient) |
+
+Stops keep their colour, position and alpha. A stop `midpoint` other than `0.5` is approximated by
+inserting a synthetic 50%-blend stop at the midpoint position; `smoothness` is ignored. Gradient
+`alpha` multiplies each stop's alpha. `Gradient.create()` with no stops returns a black-to-white
+default, and a gradient needs at least two stops. Gradient fills and strokes work on shapes,
+polycurves and text runs.
+
+### Gradient approximations
+
+- **Affinity's default extent is degenerate, the shim's is not.** A gradient fill handed to
+  `FillDescriptor.create` without a transform keeps the identity transform, so Affinity maps the
+  gradient's unit square into a 1 px box at the spread origin and the shape renders in its last
+  stop. The shim has no such transform to apply and spans the node's bounds instead, so a script
+  that omits the transform looks right here and gradient-less in Affinity. Pass one explicitly:
+  `Transform.createTranslate(box.x, box.y).multiply(Transform.createScale(box.width, box.height))`
+  for a left-to-right linear ramp, and
+  `Transform.createTranslate(cx, cy).multiply(Transform.createScale(box.width / 2, box.height / 2))`
+  to centre an elliptical gradient on the box, where `cx`/`cy` are the box's centre.
+- **Gradient coordinates are object-relative.** Gradients use `objectBoundingBox` units: linear runs
+  left-to-right across the node's bounds and radial/elliptical is centred on them. Gradient tool
+  handles and `FillDescriptor` transforms are ignored (with a `WARN:` line when a transform is
+  supplied).
+- **Conical gradients become linear, and radial becomes elliptical** (with `WARN:` lines).
+- **Noise, tint, intensity and non-linear mapping are ignored** (with `WARN:` lines when set).
+- **Stop smoothness is ignored.** Midpoints are approximated with a synthetic stop.
+
+## Text support
+
+Text nodes are built with `StoryBuilder` and rendered as SVG `<text>` with one `<tspan>` per
+styled run:
+
+```js
+const { StoryBuilder } = require('/storybuilder.js');
+const { FrameTextNodeDefinition } = require('/nodes.js');
+const { Rectangle } = require('/geometry.js');
+
+const sb = StoryBuilder.create();
+sb.setToFrameTextDefaultStyle(doc.dpi, doc.rasterFormat);
+sb.addText("Hello");
+sb.addParagraphBreak();
+sb.addText("World");
+
+doc.addNode(FrameTextNodeDefinition.createFromStoryBuilder(
+    new Rectangle(40, 40, 400, 200), sb));
+```
+
+Both `FrameTextNodeDefinition` and `ArtTextNodeDefinition` are supported. The story is copied when
+the definition is created, so reusing the builder afterwards does not change an existing node.
+
+| Feature | Behaviour |
+| --- | --- |
+| Font | family, weight (`font-weight`) and italic (`font-style`) |
+| Size | `glyphAtts.height`, in spread pixels; `setTo*TextDefaultStyle` uses 12 pt at `doc.dpi` |
+| Colour | solid or gradient `brushFill` and solid or gradient `penFill` stroke |
+| Spacing | `characterSpacing` becomes `letter-spacing` |
+| Decorations | `underlineType`/`strikeoutType` become `text-decoration`; `superSubType` becomes `baseline-shift` |
+| Caps | `AllCaps`, `Titling` and `Unicase` uppercase; small/petite caps uppercase with a warning |
+| Paragraphs | `addParagraphBreak()` starts a new line; each paragraph is one line (no wrapping) |
+| Alignment | `Left`, `Centre` and `Right`; justification and spine-relative alignment fall back with a warning |
+| Leading | relative or absolute paragraph leading, plus `spaceBefore`/`spaceAfter` |
+| Indents | `leftIndent`, `rightIndent` and `firstLineIndent` (each paragraph is one line) |
+| Deltas | `applyGlyphDelta`/`applyParagraphDelta` with the `StoryDelta` factories |
+
+Styling can be set either through the attributes or with deltas:
+
+```js
+const atts = sb.glyphAtts;
+atts.font = Font.create("Helvetica", FontWeight.Bold, false, FontWidth.Normal);
+atts.height = 48 * doc.dpi / 72;
+atts.brushFill = FillDescriptor.createSolid(RGB8(220, 60, 40));
+sb.setGlyphAtts(atts);
+
+sb.applyParagraphDelta(StoryDelta.createAlignX(ParagraphAlignXType.Centre));
+```
+
+### Text approximations
+
+- **No word wrapping.** Frame text renders each paragraph as a single line, even when it overflows
+  the frame; overflow is neither wrapped nor clipped.
+- **Justification is not implemented.** `JustifyLeft`/`JustifyCentre`/`JustifyRight` use the
+  corresponding plain alignment, `JustifyAll` uses left alignment, and each prints a `WARN:` line.
+- **Small caps are approximated by uppercasing.** `SmallCaps`, `PetiteCaps` and their variants
+  uppercase the run and print a `WARN:` line.
+- **Fonts are not measured.** Baselines use a fixed ascent of `0.8 * font size`; the viewer's own
+  font metrics decide the exact glyph extents. `Font.all` and `FontFamily.all` are empty because
+  Node cannot enumerate Affinity's installed fonts.
+- **Glyph transparency and highlight fills are ignored** (with a `WARN:` line when set).
+- **Glyph transforms are ignored.** `offsetX`/`offsetY`, `scaleX`/`scaleY`, `shearX` and
+  `baselineAdvance` do not move or distort the glyphs.
+- **Art text is anchored at its position.** The first baseline sits at `position.y`; centre/right
+  paragraph alignment anchors on `position.x`.
+
 ## Limitations
 
-- **Solid fills and solid strokes only.** Gradients, hatch/mesh/bitmap fills and `FillDescriptor`
-  blend modes are ignored.
-- **No text, images or raster nodes.** Only `PolyCurveNodeDefinition` and `ShapeNodeDefinition`
-  produce output.
+- **Solid and gradient fills and strokes only.** Hatch/mesh/bitmap/diffusion fills and
+  `FillDescriptor` blend modes are ignored. Gradient transforms and non-linear mappings are
+  approximated; see *Gradient approximations* above.
+- **No images or raster nodes.** Only `PolyCurveNodeDefinition`, `ShapeNodeDefinition` and the text
+  definitions produce output.
+- **No text wrapping or justification.** See *Text approximations* above.
 - **No dash patterns or stroke alignment.** Only weight, cap and join are emitted.
 - **Nodes are assumed to sit in spread space.** True for every script here, since they build curves
   directly in spread coordinates and never set a transform. A script that transforms nodes would need

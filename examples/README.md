@@ -1,12 +1,13 @@
-# Examples — vector line-art drawn with the Affinity MCP
+# Examples — drawings and specimens built with the Affinity MCP
 
-Seven finished drawings produced by driving **Affinity by Canva** through the Affinity MCP server.
+Nine finished examples produced by driving **Affinity by Canva** through the Affinity MCP server.
 Each one is a single self-contained JavaScript file that builds the artwork from scratch with the
-Affinity SDK — no images, no imported assets, just curves, fills and strokes.
+Affinity SDK — no images, no imported assets, just curves, fills, strokes and text.
 
 The scripts live in [`scripts/`](scripts/).
 
-> Each was drawn in one shot, with no iteration.
+> The seven line-art drawings were each drawn in one shot, with no iteration. The two specimens
+exercise specific SDK features — gradients and typography — rather than a drawing instruction.
 
 ## The drawings
 
@@ -19,6 +20,21 @@ The scripts live in [`scripts/`](scripts/).
 | [`peppa-pig.js`](scripts/peppa-pig.js) | Peppa Pig | `Draw Peppa Pig` | 560×800 | 19 | Hand-built bezier head, 6 px outline |
 | [`dog.js`](scripts/dog.js) | Cartoon dog | `draw dog` | 600×800 | 18 | Floppy ears drawn in front of the head, 8 px outline |
 | [`cat.js`](scripts/cat.js) | Cartoon cat | `draw cat` | 520×800 | 22 | Smooth offset-band tail, 8 px outline |
+
+## The specimens
+
+| Script | Shows | Page | Nodes | Style |
+| --- | --- | --- | --- | --- |
+| [`gradients.js`](scripts/gradients.js) | A sunset built entirely from gradient fills and strokes | 800×600 | 11 | Linear and elliptical gradients, no solid fills |
+| [`text.js`](scripts/text.js) | Typography specimen: art text, frame text and styled runs | 800×800 | 9 | Helvetica, with per-paragraph weight, italic and colour |
+
+`gradients.js` is the reference for placing gradient fills. A `GradientFill` passed to
+`FillDescriptor.create` without a transform keeps the identity transform, which maps the gradient's
+unit square into a 1 px box at the spread origin — Affinity then paints the whole shape in its last
+stop. The script therefore gives every gradient an explicit transform: linear gradients ramp along
++x from the transform origin, and elliptical ones are centred on it with radii taken from the
+transform's scale. See [`svg-renderer/README.md`](../svg-renderer/README.md#gradient-approximations)
+for the two forms.
 
 ## How to run one
 
@@ -40,7 +56,7 @@ node svg-renderer/render.js --all
 The script logs the node list and the document's `sessionUuid` to `console.log`, which is the only way
 to get output back from `execute_script`.
 
-Every script starts with a **document guard** keyed to its own page size:
+Each script starts with a **document guard** keyed to its own page size:
 
 ```js
 let doc = Document.current;
@@ -49,10 +65,11 @@ if (!doc || doc.widthPixels !== 560 || doc.heightPixels !== 800) {
 }
 ```
 
-Each drawing therefore owns a distinct page size, so running one script never overwrites another
-artwork. If a document of the matching size is already open it is cleared and redrawn in place, which
-is the recommended pattern — the SDK has no `Document.close()`, so creating documents repeatedly
-leaves strays open.
+The seven line-art drawings each use a distinct page size, so running one never overwrites another
+artwork. The two specimens use 800×600 and 800×800, so `text.js` shares its size with `pacman.js` —
+running it while that drawing is open clears and redraws it. If a document of the matching size is
+already open it is cleared and redrawn in place, which is the recommended pattern — the SDK has no
+`Document.close()`, so creating documents repeatedly leaves strays open.
 
 ## Shared conventions
 
@@ -69,3 +86,7 @@ Reusable helpers, shared across the scripts:
 | `capsuleCurve(bx, by, tx, ty, w)` | Constant-width capsule. Use this for limbs, not an ellipse — an ellipse tapers to points at both ends and reads as a pointed leaf. |
 | `crescentCurve(...)` | Thin sliver between two concentric ellipse arcs; used for Stan's sideburns so the hair follows the head's curve instead of sitting on it as a blob. |
 | `addCurve(curves, brushFill, lineFill, name[, lineStyle])` | Builds a `PolyCurveNode` and returns the new node. The optional line style lets one shape (e.g. the dog's mouth) use a thinner stroke. |
+
+The two specimens keep the same shape but use their own helpers: `gradients.js` builds fills with
+`linear(rect, …colours)` and `elliptical(rect, …colours)`, and `text.js` builds stories with
+`artText(text, x, y, opts)` and `frameText(paragraphs, rect, opts)`.
