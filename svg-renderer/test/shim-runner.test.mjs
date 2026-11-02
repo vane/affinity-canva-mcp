@@ -8,6 +8,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import { createRequire } from "node:module";
 
 const require = createRequire(import.meta.url);
@@ -35,8 +36,9 @@ console.log('size', doc.widthPixels + 'x' + doc.heightPixels);
 
 test("the module map exposes exactly the SDK surface the drawings use", () => {
   assert.deepEqual(Object.keys(sdkModules).sort(), [
-    "/colours.js", "/document.js", "/fills.js", "/geometry.js",
-    "/linestyle.js", "/nodes.js", "/shapes.js", "/units.js",
+    "/colours.js", "/document.js", "/fills.js", "/fonts.js", "/geometry.js",
+    "/glyphatts.js", "/linestyle.js", "/nodes.js", "/paragraphatts.js",
+    "/shapes.js", "/storybuilder.js", "/storydelta.js", "/units.js",
   ]);
 
   const shapes = sdkModules["/shapes.js"];
@@ -49,8 +51,17 @@ test("the module map exposes exactly the SDK surface the drawings use", () => {
   assert.equal(sdkModules["/units.js"].UnitType.Pixel.name, "Pixel");
   assert.equal(typeof sdkModules["/fills.js"].FillDescriptor.createSolid, "function");
   assert.equal(sdkModules["/fills.js"].FillType.Solid.name, "Solid");
+  assert.equal(typeof sdkModules["/colours.js"].Gradient.create, "function");
+  assert.equal(typeof sdkModules["/fills.js"].GradientFill.create, "function");
+  assert.equal(sdkModules["/fills.js"].GradientFillType.Linear.name, "Linear");
   assert.equal(sdkModules["/linestyle.js"].StrokeAlignment.Centre.name, "Centre");
   assert.equal(typeof sdkModules["/nodes.js"].PolyCurveNodeDefinition.create, "function");
+  assert.equal(typeof sdkModules["/nodes.js"].FrameTextNodeDefinition.createFromStoryBuilder, "function");
+  assert.equal(typeof sdkModules["/nodes.js"].ArtTextNodeDefinition.createFromStoryBuilder, "function");
+  assert.equal(typeof sdkModules["/storybuilder.js"].StoryBuilder.create, "function");
+  assert.equal(typeof sdkModules["/storydelta.js"].StoryDelta.createComposite, "function");
+  assert.equal(sdkModules["/paragraphatts.js"].ParagraphAlignXType.Centre.name, "Centre");
+  assert.equal(sdkModules["/fonts.js"].FontWeight.Bold.name, "Bold");
 });
 
 // ------------------------------------------------------------------ running
@@ -87,8 +98,8 @@ test("a script that never creates a document fails loudly", () => {
 
 test("an unimplemented module throws instead of rendering something wrong", () => {
   assert.throws(
-    () => renderScriptToSvg(`require('/storybuilder.js');`),
-    /SVG shim does not implement \/storybuilder\.js/,
+    () => renderScriptToSvg(`require('/story.js');`),
+    /SVG shim does not implement \/story\.js/,
   );
 });
 
@@ -131,6 +142,31 @@ doc.addNode(ShapeNodeDefinition.create(ShapeQRCode.create(), new Rectangle(0, 0,
   assert.deepEqual(second.warnings, [], "the QRCode warning must not leak into the next run");
 });
 
+test("renders a frame text script to SVG", () => {
+  const result = renderScriptToSvg(`
+const { Document, NewDocumentOptions } = require('/document.js');
+const { StoryBuilder } = require('/storybuilder.js');
+const { FrameTextNodeDefinition } = require('/nodes.js');
+const { Rectangle } = require('/geometry.js');
+
+const opts = NewDocumentOptions.createDefault();
+opts.width = 200; opts.height = 100;
+const doc = Document.create(opts);
+
+const sb = StoryBuilder.create();
+sb.setToFrameTextDefaultStyle(doc.dpi, doc.rasterFormat);
+sb.addText('Hello');
+doc.addNode(FrameTextNodeDefinition.createFromStoryBuilder(
+    new Rectangle(10, 10, 180, 80), sb));
+`, "text.js");
+
+  assert.equal(result.doc.nodes.length, 1);
+  assert.ok(result.svg.includes("<text "), "text nodes must be emitted as <text>");
+  assert.match(result.svg, />Hello<\/tspan>/);
+  assert.match(result.svg, /font-size="50"/);
+  assert.deepEqual(result.warnings, []);
+});
+
 test("renders a drawing file from disk", (t) => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "svg-shim-"));
   t.after(() => fs.rmSync(dir, { recursive: true, force: true }));
@@ -144,4 +180,23 @@ test("renders a drawing file from disk", (t) => {
   assert.equal(result.doc.nodes.length, 1);
   assert.equal(result.svg.split("<path ").length - 1, 1);
   assert.deepEqual(result.logs, ["size 100x80"]);
+});
+
+test("the gradient and text example drawings render", () => {
+  // gradients.js places each gradient with a FillDescriptor transform, which is
+  // how Affinity learns the gradient's extent. The shim takes extents from the
+  // node bounds instead, so it reports the transform as ignored.
+  const expectedWarnings = {
+    "gradients.js": ["gradient transforms are ignored"],
+    "text.js": [],
+  };
+
+  for (const name of ["gradients.js", "text.js"]) {
+    const file = fileURLToPath(new URL(`../../examples/scripts/${name}`, import.meta.url));
+    const result = renderFileToSvg(file);
+
+    assert.ok(result.doc.nodes.length > 0, `${name} should add nodes`);
+    assert.deepEqual(result.warnings, expectedWarnings[name], `${name} warnings`);
+    assert.ok(result.svg.startsWith("<svg "), `${name} should emit SVG`);
+  }
 });
