@@ -1,6 +1,6 @@
 ---
 name: affinity-mcp
-description: Use when working with Affinity by Canva via the Affinity MCP server — writing and running Affinity JavaScript SDK scripts with execute_script, inspecting or editing documents, spreads, artboards, nodes, shapes, curves, text, fills and exports, drawing vector line-art illustrations from overlapping parts, and verifying results with render_spread/render_selection. Covers the mandatory preamble/doc-read workflow, the SDK module map, the document/node/selection object model, node definitions and z-order, commands and bool-op welding, geometry and curve building, colour, units, text formatting, raster pixels, export, permission limits, and hint recording.
+description: Use when working with Affinity by Canva via the Affinity MCP server — writing and running Affinity JavaScript SDK scripts with execute_script, inspecting or editing documents, spreads, artboards, nodes, shapes, curves, text, fills, gradients and exports, drawing vector line-art illustrations from overlapping parts, and verifying results with render_spread/render_selection. Covers the mandatory preamble/doc-read workflow, the SDK module map, the document/node/selection object model, node definitions and z-order, commands and bool-op welding, geometry and curve building, colour, units, gradient placement, text formatting, raster pixels, export, permission limits, and hint recording.
 ---
 
 # Affinity MCP
@@ -308,6 +308,10 @@ Entry points:
   `sessionUuid` (or `title`) instead.
 - **Several documents can be open at once.** Confirm which one you are editing via `doc.sessionUuid`
   before mutating; never assume the front document is the one you drew into.
+- Setting `doc.currentSpread` on a document that is **not** the front one does not make it
+  `Document.current` — the front document stays current. Scripts that branch on `Document.current`
+  (the usual page-size guard) therefore open a new document rather than reuse an existing one of that
+  size.
 - There is **no `Document.close()`** — a document created by a script cannot be closed through the
   SDK. Prefer editing the current document (clear and redraw) over `Document.create`, and tell the
   user when you leave a new document open.
@@ -541,6 +545,41 @@ SolidFill.create(colour);
 GradientFill.create(gradient, gradientFillType);
 ```
 
+### Gradient placement
+
+A gradient's **extent comes from the `FillDescriptor` transform**, not from the node's bounds. The
+descriptor maps the gradient's unit square into spread coordinates:
+
+```js
+FillDescriptor.create(fill, scaleWithObject, transform, blendMode, anchoredToSpread)
+```
+
+Omitting `transform` (or passing `null`) keeps the identity transform, which maps the unit square to a
+1 × 1 px box at the spread origin — the shape then paints almost entirely in its **last stop**. That is
+the usual reason a gradient appears not to render at all.
+
+```js
+const { Transform } = require('/geometry.js');
+
+// Linear: ramps along +x from the transform origin, across the node's box.
+FillDescriptor.create(
+    GradientFill.create(gradient, GradientFillType.Linear), false,
+    Transform.createTranslate(box.x, box.y).multiply(Transform.createScale(box.width, box.height)),
+    null, false);
+
+// Elliptical: centred on the transform origin, radii taken from the scale.
+FillDescriptor.create(
+    GradientFill.create(gradient, GradientFillType.Elliptical), false,
+    Transform.createTranslate(cx, cy).multiply(Transform.createScale(box.width / 2, box.height / 2)),
+    null, false);
+```
+
+`Transform.createTranslate(...).multiply(createScale(...))` composes as translate ∘ scale (the scale
+applies first), and the transform is in **spread** coordinates, so an offset node needs the translate.
+Checked against rendered pixels: the linear form hits the stop colours exactly at the box edges and
+mid-point; the elliptical form is the first stop at the centre and the last stop at the box edge.
+Gradient **strokes** take the same descriptor and the same transform.
+
 ```js
 const { LineStyle, LineStyleDescriptor, LineStyleMask, LineCap, LineJoin, LineType,
         StrokeAlignment, ArrowHead, ArrowHeadStyle } = require('/linestyle.js');
@@ -648,6 +687,24 @@ rw.dispose();                                             // always dispose acce
 `PixelBuffer.buffer` exposes the raw `ArrayBuffer`. `NodeRenderingEngine.create(node, format,
 options)` renders a node into a raster object. Pixel accessors exist per format (RGBA8/16, RGBAuf,
 IA8/16, CMYKA8, LABA16, M8/16, Mf).
+
+Rendering a single node to pixels is the most precise check available while export is blocked — exact
+RGB rather than a 1024 px JPEG:
+
+```js
+const { NodeRenderingEngine, RasterFormat } = require('/rasterobject.js');
+const { createPixelReader } = require('/pixelaccessor.js');
+
+const engine = NodeRenderingEngine.createDefault(node, RasterFormat.RGBA8);
+const bmp = engine.createCompatibleBitmap(true);
+const reader = createPixelReader(bmp);
+console.log(bmp.width, bmp.height, reader.readPixel(x, y));   // local coords, origin at the node box
+reader.dispose();
+```
+
+`createDefault(node, format)` skips building a `NodeRenderingEngineOptions`. The raster is the node's
+box size, local `(0,0)` is its top-left, and pixel centres sit at `+0.5` — which matters on thin
+shapes. Use it to confirm gradient stops, stroke colours and blending instead of guessing from a JPEG.
 
 ## Dialogs
 
@@ -888,6 +945,13 @@ match on the text, not on a code.
 - `LineStyle` weight is in **pixels at `doc.dpi`** (`setLineWeight` sets it directly; use
   `setLineWeightPts` for points).
 
+### Fills and gradients
+
+- `doc.setBrushFillDescriptor(desc, …)` copies the fill but **not** the descriptor transform — the node
+  reads an identity transform afterwards, so a gradient applied that way collapses to its last stop.
+  Give the transform when the node is created, or use
+  `DocumentCommand.createSetBrushFill(selection, desc, { copyTransform: true })`.
+
 ### Line-art construction
 
 - **Stroke weight eats small gaps.** Two shapes closer than the line weight have their outlines merge into
@@ -921,12 +985,14 @@ match on the text, not on a code.
 1. Run the script.
 2. `render_spread` the affected spread (or `render_selection` for an isolated look).
 3. Log a summary with `inspect` when geometry matters (`getSpreadBaseBox`, counts, colours).
-4. Iterate; `doc.undo()` is cheap when experimenting on a real document. For repeated iterations on
+4. When colour matters, sample exact pixels with `NodeRenderingEngine.createDefault(node,
+   RasterFormat.RGBA8)` + `createPixelReader` (see *Raster pixels*) instead of judging a 1024 px JPEG.
+5. Iterate; `doc.undo()` is cheap when experimenting on a real document. For repeated iterations on
    the same document, clear and redraw in place (see Recipes) rather than creating new documents.
-5. For detail work, `render_selection` a **single** node — selecting several widely separated nodes
+6. For detail work, `render_selection` a **single** node — selecting several widely separated nodes
    renders empty, and the output is capped at 1024 px.
-6. Retry a failed render once (`authorization channel closed` is transient).
-7. When the user is happy, **tell them the script inline** — `save_script_to_library` is disabled, so it
+7. Retry a failed render once (`authorization channel closed` is transient).
+8. When the user is happy, **tell them the script inline** — `save_script_to_library` is disabled, so it
    cannot be stored for reuse.
 
 ## Recording knowledge
